@@ -108,7 +108,7 @@ const App = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">BASE デザインテーマ サポート</h1>
-              <p className="text-gray-600 mt-1">デザインテーマに関するご質問にお答えします</p>
+              <p className="text-gray-600 mt-1">Keita Yamamotoが発行するデザインテーマに関するご質問にお答えします</p>
             </div>
             <div className="flex space-x-2">
               <button
