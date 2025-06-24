@@ -1,43 +1,70 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
+    <meta name="theme-color" content="#2563eb" />
+    
+    <!-- 基本メタタグ -->
+    <title>BASE デザインテーマ サポート | Q&A・カスタマイズ相談</title>
+    <meta name="description" content="BASEのデザインテーマに関する質問と回答を受け付けるサポートサイト。レスポンシブ対応、カスタマイズ方法、トラブルシューティングなど、テーマ関連のお困りごとを解決します。" />
+    <meta name="keywords" content="BASE,ベース,デザインテーマ,カスタマイズ,レスポンシブ,CSS,HTML,ネットショップ,EC,サポート,Q&A,質問,回答" />
+    <meta name="author" content="BASE Theme Support" />
+    
+    <!-- OGP (Open Graph Protocol) -->
+    <meta property="og:title" content="BASE デザインテーマ サポート | Q&A・カスタマイズ相談" />
+    <meta property="og:description" content="BASEのデザインテーマに関する質問と回答を受け付けるサポートサイト。レスポンシブ対応、カスタマイズ方法、トラブルシューティングなど、テーマ関連のお困りごとを解決します。" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://base-theme-qa.vercel.app/" />
+    <meta property="og:image" content="https://base-theme-qa.vercel.app/og-image.png" />
+    <meta property="og:site_name" content="BASE デザインテーマ サポート" />
+    <meta property="og:locale" content="ja_JP" />
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BASE デザインテーマ サポート | Q&A・カスタマイズ相談" />
+    <meta name="twitter:description" content="BASEのデザインテーマに関する質問と回答を受け付けるサポートサイト。レスポンシブ対応、カスタマイズ方法、トラブルシューティングなど、テーマ関連のお困りごとを解決します。" />
+    <meta name="twitter:image" content="https://base-theme-qa.vercel.app/og-image.png" />
+    
+    <!-- 検索エンジン向け -->
+    <meta name="robots" content="index, follow" />
+    <meta name="googlebot" content="index, follow" />
+    <link rel="canonical" href="https://base-theme-qa.vercel.app/" />
+    
+    <!-- 追加メタタグ -->
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="application-name" content="BASE テーマサポート" />
+    <meta name="apple-mobile-web-app-title" content="BASE テーマサポート" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    
+    <!-- Favicon関連 -->
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
-
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    
+    <!-- 構造化データ（JSON-LD） -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "BASE デザインテーマ サポート",
+      "description": "BASEのデザインテーマに関する質問と回答を受け付けるサポートサイト",
+      "url": "https://base-theme-qa.vercel.app/",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://base-theme-qa.vercel.app/?search={search_term_string}",
+        "query-input": "required name=search_term_string"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "BASE Theme Support"
+      }
+    }
+    </script>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>JavaScriptを有効にしてください。このサイトはJavaScriptが必要です。</noscript>
     <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
   </body>
 </html>
