@@ -96,31 +96,62 @@ const App = () => {
   const parseTumblrData = (tumblrData) => {
     const parsedQuestions = [];
     
-    if (!tumblrData.posts || !Array.isArray(tumblrData.posts)) {
-      throw new Error('有効なTumblrエクスポートファイルではありません。posts配列が見つかりません。');
+    // 新形式（payload-0.json）と旧形式（posts.json）の両方に対応
+    let posts = [];
+    
+    if (tumblrData.posts && Array.isArray(tumblrData.posts)) {
+      // 旧形式: posts.json
+      posts = tumblrData.posts;
+    } else if (tumblrData.response && tumblrData.response.posts && Array.isArray(tumblrData.response.posts)) {
+      // 旧形式の別パターン
+      posts = tumblrData.response.posts;
+    } else if (Array.isArray(tumblrData)) {
+      // 新形式: payload-0.json（配列形式）
+      posts = tumblrData;
+    } else {
+      // その他の構造を試す
+      const possiblePosts = tumblrData.data || tumblrData.items || tumblrData.entries;
+      if (possiblePosts && Array.isArray(possiblePosts)) {
+        posts = possiblePosts;
+      } else {
+        throw new Error('有効なTumblrエクスポートファイルではありません。payload-0.json または posts.json を選択してください。');
+      }
     }
 
-    tumblrData.posts.forEach((post, index) => {
+    if (posts.length === 0) {
+      throw new Error('投稿データが見つかりませんでした。');
+    }
+
+    posts.forEach((post, index) => {
       // テキスト投稿のみを質問として処理
-      if (post.type === 'text' && post.body) {
+      const isTextPost = post.type === 'text' || post.post_type === 'text' || 
+                        (post.content && typeof post.content === 'string') ||
+                        (post.body && typeof post.body === 'string');
+      
+      if (isTextPost) {
         // HTMLタグを除去する簡単な関数
         const stripHtml = (html) => {
+          if (!html) return '';
           const tmp = document.createElement('div');
           tmp.innerHTML = html;
           return tmp.textContent || tmp.innerText || '';
         };
 
+        // 投稿本文の取得（複数のパターンに対応）
+        const bodyContent = post.body || post.content || post.text || '';
+        
         // タイトルの生成（既存のタイトルまたは本文の最初の50文字）
-        let title = post.title || '';
+        let title = post.title || post.summary || '';
         if (!title) {
-          const cleanBody = stripHtml(post.body);
+          const cleanBody = stripHtml(bodyContent);
           title = cleanBody.substring(0, 50) + (cleanBody.length > 50 ? '...' : '');
         }
 
         // カテゴリの決定（タグからテーマ名を推測）
         let category = 'Helsinki'; // デフォルトテーマ
-        if (post.tags && Array.isArray(post.tags)) {
-          const tagString = post.tags.join(' ').toLowerCase();
+        const tags = post.tags || post.tag || [];
+        if (tags && Array.isArray(tags)) {
+          const tagString = tags.join(' ').toLowerCase();
           if (tagString.includes('helsinki') || tagString.includes('ヘルシンキ') || tagString.includes('responsive') || tagString.includes('レスポンシブ')) {
             category = 'Helsinki';
           } else if (tagString.includes('stockholm') || tagString.includes('ストックホルム') || tagString.includes('minimal') || tagString.includes('シンプル')) {
@@ -134,27 +165,38 @@ const App = () => {
 
         // 投稿日の変換
         let date = new Date().toISOString().split('T')[0];
-        if (post.date) {
-          try {
-            date = new Date(post.date).toISOString().split('T')[0];
-          } catch (e) {
-            // 日付解析エラーの場合は現在日付を使用
+        const dateFields = [post.date, post.timestamp, post.created_at, post.published_at];
+        for (const dateField of dateFields) {
+          if (dateField) {
+            try {
+              if (typeof dateField === 'number') {
+                // タイムスタンプの場合
+                date = new Date(dateField * 1000).toISOString().split('T')[0];
+              } else {
+                // 文字列の場合
+                date = new Date(dateField).toISOString().split('T')[0];
+              }
+              break;
+            } catch (e) {
+              // 日付解析エラーの場合は次の候補を試す
+              continue;
+            }
           }
         }
 
         // 作者名の決定
-        const author = post.blog_name || 'Tumblrユーザー';
+        const author = post.blog_name || post.blog || post.author || 'Tumblrユーザー';
 
         const question = {
-          id: `tumblr_${post.id || index}`,
+          id: `tumblr_${post.id || post.uuid || index}`,
           title: title,
-          content: stripHtml(post.body),
+          content: stripHtml(bodyContent),
           category: category,
           author: author,
           date: date,
           answered: false,
-          tumblrUrl: post.post_url || '',
-          tumblrTags: post.tags || []
+          tumblrUrl: post.post_url || post.url || '',
+          tumblrTags: tags || []
         };
 
         parsedQuestions.push(question);
@@ -347,23 +389,66 @@ const App = () => {
             </div>
             
             {/* フィルター結果表示 */}
-            <div className="flex items-center justify-between text-sm text-gray-600">
-              <span>
-                {filteredQuestions.length}件の質問を表示
-                {(searchTerm || selectedCategory) && (
-                  <span> （{questions.length}件中）</span>
+            <div className="text-sm text-gray-600">
+              <div className="flex items-center justify-between mb-2">
+                <span>
+                  {filteredQuestions.length}件の質問を表示
+                  {(searchTerm || selectedCategory || selectedStatus) && (
+                    <span> （{questions.length}件中）</span>
+                  )}
+                </span>
+                {(searchTerm || selectedCategory || selectedStatus) && (
+                  <button
+                    onClick={() => {
+                      setSearchTerm('');
+                      setSelectedCategory('');
+                      setSelectedStatus('');
+                    }}
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    すべてのフィルターをクリア
+                  </button>
                 )}
-              </span>
-              {(searchTerm || selectedCategory) && (
-                <button
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedCategory('');
-                  }}
-                  className="text-blue-600 hover:text-blue-800 underline"
-                >
-                  フィルターをクリア
-                </button>
+              </div>
+              
+              {/* アクティブフィルター表示 */}
+              {(searchTerm || selectedCategory || selectedStatus) && (
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-gray-500">適用中:</span>
+                  {searchTerm && (
+                    <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                      検索: "{searchTerm}"
+                      <button
+                        onClick={() => setSearchTerm('')}
+                        className="ml-1 text-blue-600 hover:text-blue-800"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {selectedCategory && (
+                    <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                      テーマ: {selectedCategory}
+                      <button
+                        onClick={() => setSelectedCategory('')}
+                        className="ml-1 text-blue-600 hover:text-blue-800"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {selectedStatus && (
+                    <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                      状況: {selectedStatus === 'answered' ? '回答済み' : '回答待ち'}
+                      <button
+                        onClick={() => setSelectedStatus('')}
+                        className="ml-1 text-green-600 hover:text-green-800"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -556,9 +641,18 @@ const App = () => {
                     <ol className="list-decimal list-inside text-blue-800 space-y-1">
                       <li>Tumblrの設定から「データをエクスポート」を選択</li>
                       <li>ダウンロードされたZIPファイルを展開</li>
-                      <li>「posts.json」ファイルを選択してください</li>
+                      <li><strong>「payload-0.json」</strong>ファイルを選択してください</li>
                       <li>インポートボタンをクリック</li>
                     </ol>
+                  </div>
+                  
+                  <div className="p-4 bg-green-50 rounded-lg border-l-4 border-green-400">
+                    <h4 className="font-medium text-green-800 mb-1">ファイル形式について：</h4>
+                    <ul className="text-green-700 text-sm space-y-1">
+                      <li>• <strong>新形式</strong>: payload-0.json（推奨）</li>
+                      <li>• <strong>旧形式</strong>: posts.json（古いエクスポート）</li>
+                      <li>• どちらの形式でも自動判定して処理します</li>
+                    </ul>
                   </div>
                   
                   <div className="p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
@@ -572,7 +666,7 @@ const App = () => {
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tumblrエクスポートファイル（posts.json）
+                      Tumblrエクスポートファイル（payload-0.json または posts.json）
                     </label>
                     <input
                       type="file"
