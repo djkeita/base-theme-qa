@@ -148,23 +148,104 @@ const App = () => {
           
           // まだ見つからない場合は、data の全プロパティを配列形式で探す
           if (posts.length === 0) {
+            console.log('Searching all data properties for post content...');
             for (const [key, value] of Object.entries(dataContent)) {
+              console.log(`Checking property: ${key} (type: ${typeof value}, isArray: ${Array.isArray(value)})`);
+              
               if (Array.isArray(value) && value.length > 0) {
-                console.log(`Checking array property data.${key} (${value.length} items):`, value[0]);
+                console.log(`Property ${key} has ${value.length} items. Sample:`, value[0]);
+                
                 // 投稿っぽいプロパティがあるかチェック
                 if (value[0] && typeof value[0] === 'object') {
                   const sampleKeys = Object.keys(value[0]);
+                  console.log(`Sample keys in ${key}:`, sampleKeys);
+                  
                   const hasPostProperties = sampleKeys.some(k => 
-                    ['post_url', 'content', 'body', 'text', 'title', 'type', 'blog_name'].includes(k)
+                    ['post_url', 'content', 'body', 'text', 'title', 'type', 'blog_name', 'serve_time', 'content_url'].includes(k)
                   );
+                  
                   if (hasPostProperties) {
                     console.log(`Found posts in data.${key} based on properties:`, sampleKeys);
                     posts = value;
                     break;
                   }
+                  
+                  // ダッシュボード履歴から投稿URLを抽出する可能性
+                  if (key === 'dashboard' && sampleKeys.includes('content_url')) {
+                    console.log(`Found dashboard history in data.${key}. Converting to posts...`);
+                    const dashboardPosts = value
+                      .filter(item => item.content_url && item.element_type === 'post')
+                      .map((item, index) => ({
+                        type: 'text',
+                        post_url: item.content_url,
+                        title: `ダッシュボード投稿 ${index + 1}`,
+                        body: `この投稿は ${item.serve_time} にダッシュボードで表示されました。`,
+                        date: item.serve_time,
+                        blog_name: 'ダッシュボード履歴',
+                        tags: []
+                      }));
+                    
+                    if (dashboardPosts.length > 0) {
+                      console.log(`Created ${dashboardPosts.length} posts from dashboard history`);
+                      posts = dashboardPosts;
+                      break;
+                    }
+                  }
+                  
+                  // ハイライト投稿から抽出する可能性
+                  if (key === 'highlighted_posts' && (sampleKeys.includes('post_urls') || sampleKeys.includes('blog_name'))) {
+                    console.log(`Found highlighted posts in data.${key}. Converting to posts...`);
+                    const highlightedPosts = value
+                      .filter(item => item.post_urls && item.post_urls.length > 0)
+                      .map((item, index) => ({
+                        type: 'text',
+                        post_url: item.post_urls[0],
+                        title: `${item.blog_name} のハイライト投稿`,
+                        body: `このブログ（${item.blog_name}）のハイライト投稿です。`,
+                        blog_name: item.blog_name,
+                        tags: []
+                      }));
+                    
+                    if (highlightedPosts.length > 0) {
+                      console.log(`Created ${highlightedPosts.length} posts from highlighted posts`);
+                      posts = highlightedPosts;
+                      break;
+                    }
+                  }
                 }
+              } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                console.log(`Property ${key} is object:`, Object.keys(value));
+              } else if (typeof value === 'string' && value.length > 0) {
+                console.log(`Property ${key} is string:`, value.substring(0, 100));
               }
             }
+          }
+          
+          // 投稿データがない場合の詳細情報
+          if (posts.length === 0) {
+            console.log('=== NO POSTS FOUND - ACCOUNT ANALYSIS ===');
+            console.log('Blog names:', dataContent.blog_names);
+            console.log('Registration time:', dataContent.registration_time);
+            console.log('Last post time:', dataContent.last_post_time);
+            console.log('Most used tags:', dataContent.most_used_tags);
+            console.log('Dashboard items:', dataContent.dashboard?.length || 0);
+            console.log('Highlighted posts:', dataContent.highlighted_posts?.length || 0);
+            
+            let message = 'このTumblrアカウントには投稿データが見つかりませんでした。\n\n';
+            message += '確認された情報:\n';
+            if (dataContent.blog_names?.length > 0) {
+              message += `• ブログ名: ${dataContent.blog_names.map(b => b.current_blog_name).join(', ')}\n`;
+            }
+            if (dataContent.registration_time) {
+              message += `• 登録日: ${dataContent.registration_time}\n`;
+            }
+            if (dataContent.last_post_time) {
+              message += `• 最終投稿: ${dataContent.last_post_time}\n`;
+            } else {
+              message += '• 投稿履歴なし\n';
+            }
+            
+            throw new Error(message);
           }
         }
       });
