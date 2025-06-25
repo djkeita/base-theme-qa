@@ -128,10 +128,10 @@ const App = () => {
           
           // 投稿データを探す
           const possiblePostKeys = [
-            'posts', 'blog_posts', 'content', 'ugcLinks', 
-            'tumblr_posts', 'user_posts', 'published_posts'
+            'posts', 'blog_posts', 'content', 'tumblr_posts', 'user_posts', 'published_posts'
           ];
           
+          // まず通常の投稿データを探す
           for (const key of possiblePostKeys) {
             if (dataContent[key]) {
               console.log(`Found potential posts in data.${key}:`, dataContent[key]);
@@ -139,9 +139,116 @@ const App = () => {
                 posts = dataContent[key];
                 console.log(`Using posts from data.${key} (${posts.length} items)`);
                 break;
-              } else if (dataContent[key].link || dataContent[key].url) {
-                console.log(`Found content link in data.${key}:`, dataContent[key]);
-                throw new Error(`投稿データは外部リンクにあります。data.${key} のリンクからダウンロードしてください: ${dataContent[key].link || dataContent[key].url}`);
+              }
+            }
+          }
+          
+          // 通常の投稿データが見つからない場合、highlighted_postsを優先的にチェック
+          if (posts.length === 0 && dataContent.highlighted_posts) {
+            console.log(`Found highlighted posts in data.highlighted_posts. Converting to posts...`);
+            const highlightedPosts = [];
+            
+            dataContent.highlighted_posts.forEach(item => {
+              if (item.post_urls && item.post_urls.length > 0) {
+                item.post_urls.forEach((url, urlIndex) => {
+                  // URLからタイトルを抽出（URLデコード）
+                  let title = `${item.blog_name} のハイライト投稿 ${urlIndex + 1}`;
+                  try {
+                    // URLの最後の部分からタイトルを抽出
+                    const urlParts = url.split('/');
+                    const lastPart = urlParts[urlParts.length - 1];
+                    if (lastPart && lastPart.length > 10) {
+                      // URLエンコードされた日本語をデコード
+                      const decodedTitle = decodeURIComponent(lastPart.replace(/-/g, ' '));
+                      if (decodedTitle.length > 5 && decodedTitle.length < 100) {
+                        title = decodedTitle.substring(0, 60) + (decodedTitle.length > 60 ? '...' : '');
+                      }
+                    }
+                  } catch (e) {
+                    // デコードエラーの場合はデフォルトタイトルを使用
+                  }
+                  
+                  // ブログ名からテーマを判定
+                  let category = 'Helsinki';
+                  if (item.blog_name === 'base-stockholm') {
+                    category = 'Stockholm';
+                  } else if (item.blog_name === 'base-copenhagen') {
+                    category = 'Copenhagen';  
+                  } else if (item.blog_name === 'base-amsterdam') {
+                    category = 'Amsterdam';
+                  } else if (item.blog_name === 'base-helsinki') {
+                    category = 'Helsinki';
+                  }
+                  
+                  // 投稿内容を生成
+                  let content = `この質問は ${item.blog_name} ブログのハイライト投稿です。`;
+                  
+                  // タイトルから内容を推測
+                  const titleLower = title.toLowerCase();
+                  if (titleLower.includes('instagram') || titleLower.includes('インスタ')) {
+                    content = 'Instagram連携機能について。設定方法や表示に関する質問です。';
+                  } else if (titleLower.includes('apps') || titleLower.includes('アプリ')) {
+                    content = 'BASE Appsの機能追加や設定について。カスタム機能の実装に関する質問です。';
+                  } else if (titleLower.includes('バナー') || titleLower.includes('banner')) {
+                    content = 'バナー画像の設定や表示について。ヘッダーやフッターエリアのカスタマイズに関する質問です。';
+                  } else if (titleLower.includes('セット') || titleLower.includes('おすすめ')) {
+                    content = 'おすすめ商品やセット販売の表示機能について。商品ページのカスタマイズに関する質問です。';
+                  } else if (titleLower.includes('会員') || titleLower.includes('登録')) {
+                    content = '会員登録機能について。ユーザー登録やログイン機能のカスタマイズに関する質問です。';
+                  } else if (titleLower.includes('メニュー') || titleLower.includes('ナビ')) {
+                    content = 'ナビゲーションメニューの設定について。メニュー項目の追加や表示に関する質問です。';
+                  } else if (titleLower.includes('about') || titleLower.includes('写真')) {
+                    content = 'Aboutページのレイアウトについて。写真の配置や表示方法に関する質問です。';
+                  }
+                  
+                  // 投稿IDから日付を推測（Tumblrの投稿IDは時系列）
+                  let date = new Date().toISOString().split('T')[0];
+                  const postIdMatch = url.match(/\/post\/(\d+)/);
+                  if (postIdMatch) {
+                    const postId = parseInt(postIdMatch[1]);
+                    // Tumblr投稿IDから大まかな日付を推測（非常に大雑把）
+                    if (postId > 780000000000000000) {
+                      date = '2024-04-15';
+                    } else if (postId > 770000000000000000) {
+                      date = '2024-01-15';  
+                    } else {
+                      date = '2023-10-15';
+                    }
+                  }
+                  
+                  highlightedPosts.push({
+                    type: 'text',
+                    post_url: url,
+                    title: title,
+                    body: content,
+                    blog_name: item.blog_name,
+                    date: date,
+                    tags: ['highlighted', item.blog_name.replace('base-', ''), 'base'],
+                    id: `highlighted_${item.blog_name}_${urlIndex}`,
+                    category: category
+                  });
+                });
+              }
+            });
+            
+            if (highlightedPosts.length > 0) {
+              console.log(`Created ${highlightedPosts.length} posts from highlighted posts:`, highlightedPosts.map(p => `${p.blog_name}: ${p.title}`));
+              posts = highlightedPosts;
+            }
+          }
+          
+          // まだ見つからない場合はugcLinksをチェック
+          if (posts.length === 0 && dataContent.ugcLinks) {
+            console.log(`Found potential posts in data.ugcLinks:`, dataContent.ugcLinks);
+            if (Array.isArray(dataContent.ugcLinks)) {
+              // ugcLinksが実際の投稿データかチェック
+              const firstItem = dataContent.ugcLinks[0];
+              if (firstItem && firstItem.link && firstItem.link.includes('tumblr.zendesk.com')) {
+                console.log('ugcLinks contains help link, not post data');
+                throw new Error('投稿データは外部リンクにあります。data.ugcLinks のリンクからダウンロードしてください: ' + firstItem.link);
+              } else {
+                posts = dataContent.ugcLinks;
+                console.log(`Using posts from data.ugcLinks (${posts.length} items)`);
               }
             }
           }
@@ -205,101 +312,6 @@ const App = () => {
                     if (dashboardPosts.length > 0) {
                       console.log(`Created ${dashboardPosts.length} posts from dashboard history`);
                       posts = dashboardPosts.slice(0, 20); // 最大20件に制限
-                      break;
-                    }
-                  }
-                  
-                  // ハイライト投稿から抽出する可能性
-                  if (key === 'highlighted_posts' && (sampleKeys.includes('post_urls') || sampleKeys.includes('blog_name'))) {
-                    console.log(`Found highlighted posts in data.${key}. Converting to posts...`);
-                    const highlightedPosts = [];
-                    
-                    value.forEach(item => {
-                      if (item.post_urls && item.post_urls.length > 0) {
-                        item.post_urls.forEach((url, urlIndex) => {
-                          // URLからタイトルを抽出（URLデコード）
-                          let title = `${item.blog_name} のハイライト投稿 ${urlIndex + 1}`;
-                          try {
-                            // URLの最後の部分からタイトルを抽出
-                            const urlParts = url.split('/');
-                            const lastPart = urlParts[urlParts.length - 1];
-                            if (lastPart && lastPart.length > 10) {
-                              // URLエンコードされた日本語をデコード
-                              const decodedTitle = decodeURIComponent(lastPart.replace(/-/g, ' '));
-                              if (decodedTitle.length > 5 && decodedTitle.length < 100) {
-                                title = decodedTitle.substring(0, 60) + (decodedTitle.length > 60 ? '...' : '');
-                              }
-                            }
-                          } catch (e) {
-                            // デコードエラーの場合はデフォルトタイトルを使用
-                          }
-                          
-                          // ブログ名からテーマを判定
-                          let category = 'Helsinki';
-                          if (item.blog_name === 'base-stockholm') {
-                            category = 'Stockholm';
-                          } else if (item.blog_name === 'base-copenhagen') {
-                            category = 'Copenhagen';  
-                          } else if (item.blog_name === 'base-amsterdam') {
-                            category = 'Amsterdam';
-                          } else if (item.blog_name === 'base-helsinki') {
-                            category = 'Helsinki';
-                          }
-                          
-                          // 投稿内容を生成
-                          let content = `この質問は ${item.blog_name} ブログのハイライト投稿です。`;
-                          
-                          // タイトルから内容を推測
-                          const titleLower = title.toLowerCase();
-                          if (titleLower.includes('instagram') || titleLower.includes('インスタ')) {
-                            content = 'Instagram連携機能について。設定方法や表示に関する質問です。';
-                          } else if (titleLower.includes('apps') || titleLower.includes('アプリ')) {
-                            content = 'BASE Appsの機能追加や設定について。カスタム機能の実装に関する質問です。';
-                          } else if (titleLower.includes('バナー') || titleLower.includes('banner')) {
-                            content = 'バナー画像の設定や表示について。ヘッダーやフッターエリアのカスタマイズに関する質問です。';
-                          } else if (titleLower.includes('セット') || titleLower.includes('おすすめ')) {
-                            content = 'おすすめ商品やセット販売の表示機能について。商品ページのカスタマイズに関する質問です。';
-                          } else if (titleLower.includes('会員') || titleLower.includes('登録')) {
-                            content = '会員登録機能について。ユーザー登録やログイン機能のカスタマイズに関する質問です。';
-                          } else if (titleLower.includes('メニュー') || titleLower.includes('ナビ')) {
-                            content = 'ナビゲーションメニューの設定について。メニュー項目の追加や表示に関する質問です。';
-                          } else if (titleLower.includes('about') || titleLower.includes('写真')) {
-                            content = 'Aboutページのレイアウトについて。写真の配置や表示方法に関する質問です。';
-                          }
-                          
-                          // 投稿IDから日付を推測（Tumblrの投稿IDは時系列）
-                          let date = new Date().toISOString().split('T')[0];
-                          const postIdMatch = url.match(/\/post\/(\d+)/);
-                          if (postIdMatch) {
-                            const postId = parseInt(postIdMatch[1]);
-                            // Tumblr投稿IDから大まかな日付を推測（非常に大雑把）
-                            if (postId > 780000000000000000) {
-                              date = '2024-04-15';
-                            } else if (postId > 770000000000000000) {
-                              date = '2024-01-15';  
-                            } else {
-                              date = '2023-10-15';
-                            }
-                          }
-                          
-                          highlightedPosts.push({
-                            type: 'text',
-                            post_url: url,
-                            title: title,
-                            body: content,
-                            blog_name: item.blog_name,
-                            date: date,
-                            tags: ['highlighted', item.blog_name.replace('base-', ''), 'base'],
-                            id: `highlighted_${item.blog_name}_${urlIndex}`,
-                            category: category
-                          });
-                        });
-                      }
-                    });
-                    
-                    if (highlightedPosts.length > 0) {
-                      console.log(`Created ${highlightedPosts.length} posts from highlighted posts:`, highlightedPosts.map(p => `${p.blog_name}: ${p.title}`));
-                      posts = highlightedPosts;
                       break;
                     }
                   }
