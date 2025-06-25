@@ -134,17 +134,31 @@ const App = () => {
       }
       
       if (!found) {
-        // 深いネストを探す
+        // 深いネストを探す（最大3レベル）
+        console.log('Searching deeper nested structures...');
         for (const key1 of Object.keys(tumblrData)) {
           const level1 = tumblrData[key1];
           if (typeof level1 === 'object' && level1 !== null) {
+            console.log(`Checking level1 key: ${key1}`);
             for (const key2 of Object.keys(level1)) {
               const level2 = level1[key2];
               if (Array.isArray(level2)) {
-                console.log(`Found posts in ${key1}.${key2} array`);
+                console.log(`Found posts in ${key1}.${key2} array (${level2.length} items)`);
                 posts = level2;
                 found = true;
                 break;
+              } else if (typeof level2 === 'object' && level2 !== null) {
+                console.log(`Checking level2 key: ${key1}.${key2}`);
+                for (const key3 of Object.keys(level2)) {
+                  const level3 = level2[key3];
+                  if (Array.isArray(level3)) {
+                    console.log(`Found posts in ${key1}.${key2}.${key3} array (${level3.length} items)`);
+                    posts = level3;
+                    found = true;
+                    break;
+                  }
+                }
+                if (found) break;
               }
             }
             if (found) break;
@@ -175,6 +189,10 @@ const App = () => {
         hasBody: !!(post.body || post.content || post.text),
         hasTags: !!(post.tags || post.tag)
       });
+      
+      // 実際の投稿内容を詳細表示
+      console.log(`Post ${i} detailed structure:`, post);
+      console.log(`Post ${i} all properties:`, Object.entries(post));
     });
 
     posts.forEach((post, index) => {
