@@ -96,37 +96,100 @@ const App = () => {
   const parseTumblrData = (tumblrData) => {
     const parsedQuestions = [];
     
+    console.log('=== Tumblr Data Analysis ===');
+    console.log('Data type:', typeof tumblrData);
+    console.log('Is array:', Array.isArray(tumblrData));
+    console.log('Root keys:', Object.keys(tumblrData));
+    
     // 新形式（payload-0.json）と旧形式（posts.json）の両方に対応
     let posts = [];
     
     if (tumblrData.posts && Array.isArray(tumblrData.posts)) {
       // 旧形式: posts.json
+      console.log('Found posts array (old format)');
       posts = tumblrData.posts;
     } else if (tumblrData.response && tumblrData.response.posts && Array.isArray(tumblrData.response.posts)) {
       // 旧形式の別パターン
+      console.log('Found response.posts array (old format variant)');
       posts = tumblrData.response.posts;
     } else if (Array.isArray(tumblrData)) {
       // 新形式: payload-0.json（配列形式）
+      console.log('Found root array (new format)');
       posts = tumblrData;
     } else {
-      // その他の構造を試す
-      const possiblePosts = tumblrData.data || tumblrData.items || tumblrData.entries;
-      if (possiblePosts && Array.isArray(possiblePosts)) {
-        posts = possiblePosts;
-      } else {
-        throw new Error('有効なTumblrエクスポートファイルではありません。payload-0.json または posts.json を選択してください。');
+      // その他の構造を探す
+      console.log('Searching for alternative structures...');
+      
+      // 可能性のあるキーをすべて試す
+      const possibleKeys = ['data', 'items', 'entries', 'content', 'tumblr_posts', 'blog_posts'];
+      let found = false;
+      
+      for (const key of possibleKeys) {
+        if (tumblrData[key] && Array.isArray(tumblrData[key])) {
+          console.log(`Found posts in ${key} array`);
+          posts = tumblrData[key];
+          found = true;
+          break;
+        }
+      }
+      
+      if (!found) {
+        // 深いネストを探す
+        for (const key1 of Object.keys(tumblrData)) {
+          const level1 = tumblrData[key1];
+          if (typeof level1 === 'object' && level1 !== null) {
+            for (const key2 of Object.keys(level1)) {
+              const level2 = level1[key2];
+              if (Array.isArray(level2)) {
+                console.log(`Found posts in ${key1}.${key2} array`);
+                posts = level2;
+                found = true;
+                break;
+              }
+            }
+            if (found) break;
+          }
+        }
+      }
+      
+      if (!found) {
+        console.log('Available structure:');
+        console.log(JSON.stringify(tumblrData, null, 2).substring(0, 1000) + '...');
+        throw new Error(`有効なTumblrエクスポートファイルではありません。投稿データが見つかりませんでした。利用可能なキー: ${Object.keys(tumblrData).join(', ')}`);
       }
     }
 
+    console.log(`Found ${posts.length} total posts`);
+    
     if (posts.length === 0) {
       throw new Error('投稿データが見つかりませんでした。');
     }
 
+    // 最初の数件をサンプル表示
+    console.log('Sample posts structure:');
+    posts.slice(0, 3).forEach((post, i) => {
+      console.log(`Post ${i}:`, {
+        type: post.type || post.post_type || 'unknown',
+        keys: Object.keys(post),
+        hasTitle: !!(post.title || post.summary),
+        hasBody: !!(post.body || post.content || post.text),
+        hasTags: !!(post.tags || post.tag)
+      });
+    });
+
     posts.forEach((post, index) => {
-      // テキスト投稿のみを質問として処理
-      const isTextPost = post.type === 'text' || post.post_type === 'text' || 
-                        (post.content && typeof post.content === 'string') ||
-                        (post.body && typeof post.body === 'string');
+      // テキスト投稿の判定を緩くする
+      const isTextPost = 
+        post.type === 'text' || 
+        post.post_type === 'text' || 
+        (post.content && typeof post.content === 'string') ||
+        (post.body && typeof post.body === 'string') ||
+        (post.text && typeof post.text === 'string') ||
+        // タイトルがあれば質問として扱う
+        (post.title && typeof post.title === 'string') ||
+        (post.summary && typeof post.summary === 'string');
+      
+      console.log(`Post ${index}: type=${post.type || post.post_type || 'unknown'}, isTextPost=${isTextPost}`);
       
       if (isTextPost) {
         // HTMLタグを除去する簡単な関数
@@ -138,13 +201,19 @@ const App = () => {
         };
 
         // 投稿本文の取得（複数のパターンに対応）
-        const bodyContent = post.body || post.content || post.text || '';
+        const bodyContent = post.body || post.content || post.text || post.summary || '';
         
         // タイトルの生成（既存のタイトルまたは本文の最初の50文字）
         let title = post.title || post.summary || '';
         if (!title) {
           const cleanBody = stripHtml(bodyContent);
           title = cleanBody.substring(0, 50) + (cleanBody.length > 50 ? '...' : '');
+        }
+
+        // 空のコンテンツをスキップ
+        if (!title && !bodyContent) {
+          console.log(`Skipping post ${index}: no content`);
+          return;
         }
 
         // カテゴリの決定（タグからテーマ名を推測）
@@ -165,7 +234,7 @@ const App = () => {
 
         // 投稿日の変換
         let date = new Date().toISOString().split('T')[0];
-        const dateFields = [post.date, post.timestamp, post.created_at, post.published_at];
+        const dateFields = [post.date, post.timestamp, post.created_at, post.published_at, post.updated_at];
         for (const dateField of dateFields) {
           if (dateField) {
             try {
@@ -185,24 +254,31 @@ const App = () => {
         }
 
         // 作者名の決定
-        const author = post.blog_name || post.blog || post.author || 'Tumblrユーザー';
+        const author = post.blog_name || post.blog || post.author || post.user || 'Tumblrユーザー';
 
         const question = {
-          id: `tumblr_${post.id || post.uuid || index}`,
+          id: `tumblr_${post.id || post.uuid || post.slug || index}`,
           title: title,
           content: stripHtml(bodyContent),
           category: category,
           author: author,
           date: date,
           answered: false,
-          tumblrUrl: post.post_url || post.url || '',
+          tumblrUrl: post.post_url || post.url || post.permalink || '',
           tumblrTags: tags || []
         };
+
+        console.log(`Created question from post ${index}:`, {
+          title: question.title.substring(0, 50),
+          category: question.category,
+          author: question.author
+        });
 
         parsedQuestions.push(question);
       }
     });
 
+    console.log(`Successfully parsed ${parsedQuestions.length} questions from ${posts.length} posts`);
     return parsedQuestions;
   };
 
@@ -217,11 +293,17 @@ const App = () => {
     try {
       const fileContent = await file.text();
       const tumblrData = JSON.parse(fileContent);
+      
+      // デバッグ情報を表示
+      console.log('Tumblr data structure:', tumblrData);
+      console.log('Keys in root object:', Object.keys(tumblrData));
+      
       const parsedQuestions = parseTumblrData(tumblrData);
       
       setImportPreview(parsedQuestions);
       setImportStep('preview');
     } catch (error) {
+      console.error('Import error:', error);
       alert(`ファイルの読み込みエラー: ${error.message}`);
       setImportStep('select');
       setImportFile(null);

@@ -1,0 +1,76 @@
+[
+  {
+    "type": "text",
+    "blog_name": "base-theme-support",
+    "id": "123456789",
+    "post_url": "https://base-theme-support.tumblr.com/post/123456789",
+    "timestamp": 1710493800,
+    "date": "2024-03-15T10:30:00Z",
+    "title": "ヘッダーメニューのレスポンシブ対応について",
+    "body": "<p>BASEテーマを使用していますが、スマートフォンでメニューが正しく表示されません。具体的には、ハンバーガーメニューをタップしても開かず、メニュー項目が縦に並んでしまいます。どのように修正すればよいでしょうか？CSSのメディアクエリを確認したのですが、よくわかりませんでした。</p>",
+    "tags": ["responsive", "mobile", "css", "help", "menu", "helsinki"]
+  },
+  {
+    "type": "text",
+    "blog_name": "base-theme-support",
+    "id": "123456790",
+    "post_url": "https://base-theme-support.tumblr.com/post/123456790",
+    "timestamp": 1710425200,
+    "date": "2024-03-14T15:20:00Z",
+    "title": "商品画像のカスタマイズ方法",
+    "body": "<p>商品一覧ページの画像サイズを変更したいのですが、どのCSSファイルを編集すればよいでしょうか？現在は正方形で表示されているのですが、長方形（横長）にしたいです。具体的な手順を教えてください。</p><p>また、ホバーエフェクトも追加したいのですが、CSSのコードサンプルがあれば教えてください。</p>",
+    "tags": ["customize", "css", "product", "image", "design", "stockholm"]
+  },
+  {
+    "type": "text", 
+    "blog_name": "base-theme-support",
+    "id": "123456791",
+    "post_url": "https://base-theme-support.tumblr.com/post/123456791",
+    "timestamp": 1710318300,
+    "date": "2024-03-13T09:45:00Z",
+    "title": "",
+    "body": "<p>フォントを変更したいのですが、Google Fontsを使用する場合の手順を教えてください。現在のフォントが少し読みにくく感じるので、もう少しモダンなフォントに変更したいです。</p>",
+    "tags": ["design", "font", "google-fonts", "typography", "copenhagen"]
+  },
+  {
+    "type": "text",
+    "blog_name": "base-theme-support", 
+    "id": "123456792",
+    "post_url": "https://base-theme-support.tumblr.com/post/123456792",
+    "timestamp": 1710248200,
+    "date": "2024-03-12T14:10:00Z",
+    "title": "カートボタンが表示されないエラー",
+    "body": "<p>商品ページでカートボタンが表示されなくなりました。昨日までは正常に表示されていたのですが、突然見えなくなりました。エラーメッセージも出ていませんが、何が原因でしょうか？</p><p>ブラウザのキャッシュはクリアしましたが、改善されません。他に確認すべき点があれば教えてください。</p>",
+    "tags": ["error", "trouble", "cart", "bug", "troubleshooting", "amsterdam"]
+  },
+  {
+    "type": "text",
+    "blog_name": "base-theme-support",
+    "id": "123456793", 
+    "post_url": "https://base-theme-support.tumblr.com/post/123456793",
+    "timestamp": 1710177000,
+    "date": "2024-03-11T18:30:00Z",
+    "title": "SEO対策について",
+    "body": "<p>BASEショップのSEO対策を強化したいのですが、どこから始めればよいでしょうか？特に商品ページのメタタグ設定や、画像のalt属性などについて教えてください。</p>",
+    "tags": ["seo", "meta", "search", "optimization", "helsinki"]
+  },
+  {
+    "type": "photo",
+    "blog_name": "base-theme-support",
+    "id": "123456794",
+    "post_url": "https://base-theme-support.tumblr.com/post/123456794",
+    "timestamp": 1710065400,
+    "date": "2024-03-10T11:30:00Z",
+    "caption": "新しいテーマのスクリーンショット",
+    "photos": [
+      {
+        "original_size": {
+          "url": "https://example.com/photo.jpg",
+          "width": 1200,
+          "height": 800
+        }
+      }
+    ],
+    "tags": ["screenshot", "theme", "design"]
+  }
+]
