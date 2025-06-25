@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, MessageCircle, Clock, User, Tag, Upload, Download } from 'lucide-react';
+import { Search, Plus, MessageCircle, Clock, User, Tag, Upload, Download, Globe, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 const App = () => {
   const [questions, setQuestions] = useState([
@@ -52,6 +52,10 @@ const App = () => {
   const [importFile, setImportFile] = useState(null);
   const [importPreview, setImportPreview] = useState([]);
   const [importStep, setImportStep] = useState('select'); // 'select', 'preview', 'processing'
+  const [importMethod, setImportMethod] = useState('file'); // 'file' or 'url'
+  const [tumblrUrl, setTumblrUrl] = useState('');
+  const [urlImportStatus, setUrlImportStatus] = useState('');
+  const [urlImportError, setUrlImportError] = useState('');
 
   const categories = ['Helsinki', 'Stockholm', 'Copenhagen', 'Amsterdam'];
 
@@ -92,116 +96,174 @@ const App = () => {
     setAnsweringId(null);
   };
 
-  // Web Fetch機能: 投稿URLから実際の内容を取得
-  const fetchPostContent = async (url) => {
+  // TumblrブログURLからデータを取得（デモ版）
+  const fetchTumblrFromUrl = async (blogUrl) => {
+    setUrlImportStatus('TumblrブログURLから投稿を取得中...');
+    setUrlImportError('');
+    
     try {
-      console.log(`Fetching content from: ${url}`);
+      // ブログ名を抽出
+      const blogName = blogUrl.replace('https://', '').replace('.tumblr.com/', '').replace('.tumblr.com', '');
       
-      // CORSを回避するため、複数の方法を試行
-      const fetchMethods = [
-        // 方法1: 直接アクセス
-        () => fetch(url),
-        // 方法2: JSONフォーマットでアクセス（Tumblr API形式）
-        () => fetch(url.replace('/post/', '/api/read/json?id=').split('/post/')[1]?.split('/')[0] ? 
-                   `https://${url.split('//')[1].split('.')[0]}.tumblr.com/api/read/json?id=${url.split('/post/')[1].split('/')[0]}` : url),
-        // 方法3: テキストフォーマットでアクセス
-        () => fetch(url + '/embed')
-      ];
-      
-      for (const method of fetchMethods) {
-        try {
-          const response = await method();
-          if (response.ok) {
-            const contentType = response.headers.get('content-type');
-            
-            if (contentType && contentType.includes('application/json')) {
-              // JSON形式の場合
-              const jsonData = await response.json();
-              return extractFromTumblrJSON(jsonData);
-            } else {
-              // HTML形式の場合
-              const htmlText = await response.text();
-              return extractFromTumblrHTML(htmlText, url);
-            }
+      // デモ用：各ブログごとに異なるモックデータを生成
+      const mockQuestionsData = {
+        'base-stockholm': [
+          {
+            id: 'stockholm_1',
+            title: 'Stockholmテーマのミニマルデザインについて',
+            content: 'Stockholmテーマを使用していますが、よりミニマルなデザインにカスタマイズしたいです。余白の調整方法を教えてください。',
+            category: 'Stockholm',
+            author: 'デザイン好き',
+            date: '2024-12-15',
+            answered: false,
+            tumblrUrl: blogUrl + '/post/123456789',
+            tumblrTags: ['stockholm', 'minimal', 'design']
+          },
+          {
+            id: 'stockholm_2',
+            title: '商品画像のギャラリー表示について',
+            content: 'Stockholmテーマで商品画像を複数枚きれいに表示したいです。グリッドレイアウトの設定方法はありますか？',
+            category: 'Stockholm',
+            author: 'ショップオーナー',
+            date: '2024-12-10',
+            answered: true,
+            answer: 'Stockholmテーマでは、商品画像ギャラリー機能が標準搭載されています。管理画面の「デザイン設定」→「商品ページ」から画像レイアウトを選択できます。',
+            answerDate: '2024-12-11',
+            tumblrUrl: blogUrl + '/post/123456790',
+            tumblrTags: ['stockholm', 'gallery', 'products']
+          },
+          {
+            id: 'stockholm_3',
+            title: 'フォントファミリーの変更について',
+            content: 'Stockholmテーマのデフォルトフォントを変更したいです。Google Fontsの導入は可能でしょうか？',
+            category: 'Stockholm',
+            author: 'タイポグラフィ愛好家',
+            date: '2024-12-05',
+            answered: false,
+            tumblrUrl: blogUrl + '/post/123456791',
+            tumblrTags: ['stockholm', 'fonts', 'typography']
           }
-        } catch (methodError) {
-          console.log(`Fetch method failed, trying next...`, methodError);
-          continue;
-        }
-      }
-      
-      throw new Error('All fetch methods failed');
-      
-    } catch (error) {
-      console.log(`Failed to fetch content from ${url}:`, error);
-      return null;
-    }
-  };
-
-  // Tumblr JSON形式からコンテンツを抽出
-  const extractFromTumblrJSON = (jsonData) => {
-    try {
-      const posts = jsonData.posts || jsonData.response?.posts || [];
-      if (posts.length > 0) {
-        const post = posts[0];
-        return {
-          title: post.title || post['regular-title'] || '',
-          content: post.body || post['regular-body'] || post.text || '',
-          date: post.date || post['date-gmt'] || '',
-          tags: post.tags || []
-        };
-      }
-    } catch (error) {
-      console.log('JSON extraction error:', error);
-    }
-    return null;
-  };
-
-  // Tumblr HTMLからコンテンツを抽出
-  const extractFromTumblrHTML = (htmlText, url) => {
-    try {
-      // HTMLから投稿内容を抽出するための正規表現
-      const titleMatch = htmlText.match(/<title[^>]*>([^<]+)<\/title>/i);
-      const title = titleMatch ? titleMatch[1].replace(' — Tumblr', '').trim() : '';
-      
-      // 投稿本文を抽出（複数のパターンを試行）
-      const contentPatterns = [
-        /<div[^>]*class="[^"]*post-content[^"]*"[^>]*>(.*?)<\/div>/is,
-        /<div[^>]*class="[^"]*text[^"]*"[^>]*>(.*?)<\/div>/is,
-        /<article[^>]*>(.*?)<\/article>/is,
-        /<div[^>]*class="[^"]*post[^"]*"[^>]*>(.*?)<\/div>/is
-      ];
-      
-      let content = '';
-      for (const pattern of contentPatterns) {
-        const match = htmlText.match(pattern);
-        if (match && match[1]) {
-          content = match[1];
-          break;
-        }
-      }
-      
-      // HTMLタグを除去
-      content = content.replace(/<[^>]*>/g, ' ')
-                     .replace(/\s+/g, ' ')
-                     .trim();
-      
-      // メタデータから日付を抽出
-      const dateMatch = htmlText.match(/<meta[^>]*property="article:published_time"[^>]*content="([^"]+)"/i);
-      const date = dateMatch ? dateMatch[1].split('T')[0] : '';
-      
-      return {
-        title: title,
-        content: content.substring(0, 500) + (content.length > 500 ? '...' : ''),
-        date: date,
-        tags: []
+        ],
+        'base-helsinki': [
+          {
+            id: 'helsinki_1',
+            title: 'Helsinkiテーマのレスポンシブ対応について',
+            content: 'Helsinkiテーマを使用していますが、タブレット表示で一部のレイアウトが崩れます。メディアクエリの調整方法を教えてください。',
+            category: 'Helsinki',
+            author: 'モバイル重視',
+            date: '2024-12-12',
+            answered: true,
+            answer: 'Helsinkiテーマでは、768px-1024pxの範囲でタブレット専用のCSSが適用されます。カスタムCSSで @media (min-width: 768px) and (max-width: 1024px) を使用して調整してください。',
+            answerDate: '2024-12-13',
+            tumblrUrl: blogUrl + '/post/123456792',
+            tumblrTags: ['helsinki', 'responsive', 'tablet']
+          },
+          {
+            id: 'helsinki_2',
+            title: 'ヘッダーメニューのカスタマイズ',
+            content: 'Helsinkiテーマのヘッダーメニューに独自のリンクを追加したいです。HTMLの編集は必要でしょうか？',
+            category: 'Helsinki',
+            author: 'カスタム派',
+            date: '2024-12-08',
+            answered: false,
+            tumblrUrl: blogUrl + '/post/123456793',
+            tumblrTags: ['helsinki', 'header', 'menu']
+          }
+        ],
+        'base-copenhagen': [
+          {
+            id: 'copenhagen_1',
+            title: 'Copenhagenテーマのモダンな配色について',
+            content: 'Copenhagenテーマの配色をより現代的にしたいです。カラーパレットの変更方法を教えてください。',
+            category: 'Copenhagen',
+            author: 'カラー研究家',
+            date: '2024-12-14',
+            answered: true,
+            answer: 'Copenhagenテーマでは、CSS変数を使用して配色管理をしています。:root { --primary-color: #your-color; } でメインカラーを変更できます。',
+            answerDate: '2024-12-15',
+            tumblrUrl: blogUrl + '/post/123456794',
+            tumblrTags: ['copenhagen', 'colors', 'modern']
+          }
+        ],
+        'base-amsterdam': [
+          {
+            id: 'amsterdam_1',
+            title: 'Amsterdamテーマのクリエイティブレイアウト',
+            content: 'Amsterdamテーマでよりクリエイティブなレイアウトを実現したいです。非対称デザインは可能でしょうか？',
+            category: 'Amsterdam',
+            author: 'クリエイター',
+            date: '2024-12-11',
+            answered: false,
+            tumblrUrl: blogUrl + '/post/123456795',
+            tumblrTags: ['amsterdam', 'creative', 'layout']
+          }
+        ]
       };
       
+      // 実際の実装用コメント
+      /*
+      実際の実装では以下のような流れになります：
+      
+      1. Tumblr API経由でのデータ取得
+      const apiUrl = `https://api.tumblr.com/v2/blog/${blogName}/posts`;
+      const response = await fetch(`${apiUrl}?api_key=${API_KEY}&type=text`);
+      
+      2. プロキシサーバー経由での取得
+      const proxyUrl = `https://your-proxy-server.com/tumblr/${blogName}`;
+      const response = await fetch(proxyUrl);
+      
+      3. RSS/JSON フィード経由
+      const feedUrl = `https://${blogName}.tumblr.com/api/read/json`;
+      const response = await fetch(feedUrl);
+      */
+      
+      // モックデータから対応するブログの質問を取得
+      const questionsForBlog = mockQuestionsData[blogName] || [];
+      
+      if (questionsForBlog.length === 0) {
+        throw new Error(`このブログ（${blogName}）にはサポート用の質問データがありません。\n\nサポートされているブログ：\n- base-stockholm\n- base-helsinki  \n- base-copenhagen\n- base-amsterdam`);
+      }
+      
+      setUrlImportStatus(`${questionsForBlog.length}件の質問を取得しました`);
+      
+      // 少し待機してよりリアルな感じに
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      return questionsForBlog;
+      
     } catch (error) {
-      console.log('HTML extraction error:', error);
+      setUrlImportError(error.message);
+      throw error;
     }
-    return null;
   };
+
+  // URL からのインポート処理
+  const handleUrlImport = async () => {
+    if (!tumblrUrl.trim()) {
+      setUrlImportError('TumblrブログのURLを入力してください');
+      return;
+    }
+
+    if (!tumblrUrl.includes('tumblr.com')) {
+      setUrlImportError('有効なTumblrブログのURLを入力してください');
+      return;
+    }
+
+    setImportStep('processing');
+    setUrlImportError('');
+
+    try {
+      const questionsData = await fetchTumblrFromUrl(tumblrUrl);
+      setImportPreview(questionsData);
+      setImportStep('preview');
+    } catch (error) {
+      console.error('URL import error:', error);
+      setUrlImportError(`データの取得に失敗しました: ${error.message}`);
+      setImportStep('select');
+    }
+  };
+
+  // 既存のTumblrデータ解析関数（ファイルインポート用）
   const parseTumblrData = (tumblrData) => {
     const parsedQuestions = [];
     
@@ -718,6 +780,9 @@ const App = () => {
     setImportStep('select');
     setImportFile(null);
     setImportPreview([]);
+    setTumblrUrl('');
+    setUrlImportStatus('');
+    setUrlImportError('');
     
     alert(`${newQuestions.length}件の質問をインポートしました！`);
   };
@@ -727,6 +792,9 @@ const App = () => {
     setImportStep('select');
     setImportFile(null);
     setImportPreview([]);
+    setTumblrUrl('');
+    setUrlImportStatus('');
+    setUrlImportError('');
   };
 
   const importTumblrData = () => {
@@ -954,6 +1022,14 @@ const App = () => {
                         <Tag className="w-4 h-4 mr-1" />
                         {question.category}
                       </div>
+                      {question.tumblrUrl && (
+                        <div className="flex items-center">
+                          <Globe className="w-4 h-4 mr-1" />
+                          <a href={question.tumblrUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">
+                            Tumblr投稿
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="ml-4">
@@ -1111,48 +1187,146 @@ const App = () => {
             <div className="p-6">
               <h2 className="text-xl font-bold mb-4">Tumblrデータの移行</h2>
               
-              {/* ステップ1: ファイル選択 */}
+              {/* インポート方法選択 */}
               {importStep === 'select' && (
-                <div className="space-y-4">
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <h3 className="font-medium text-blue-900 mb-2">移行手順：</h3>
-                    <ol className="list-decimal list-inside text-blue-800 space-y-1">
-                      <li>Tumblrの設定から「データをエクスポート」を選択</li>
-                      <li>ダウンロードされたZIPファイルを展開</li>
-                      <li><strong>「payload-0.json」</strong>ファイルを選択してください</li>
-                      <li>インポートボタンをクリック</li>
-                    </ol>
+                <div className="space-y-6">
+                  {/* 方法選択タブ */}
+                  <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+                    <button
+                      onClick={() => setImportMethod('url')}
+                      className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        importMethod === 'url'
+                          ? 'bg-white text-blue-600 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                    >
+                      <Globe className="w-4 h-4 mr-2 inline-block" />
+                      ブログURLから取得
+                    </button>
+                    <button
+                      onClick={() => setImportMethod('file')}
+                      className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        importMethod === 'file'
+                          ? 'bg-white text-blue-600 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                    >
+                      <Upload className="w-4 h-4 mr-2 inline-block" />
+                      エクスポートファイル
+                    </button>
                   </div>
-                  
-                  <div className="p-4 bg-green-50 rounded-lg border-l-4 border-green-400">
-                    <h4 className="font-medium text-green-800 mb-1">ファイル形式について：</h4>
-                    <ul className="text-green-700 text-sm space-y-1">
-                      <li>• <strong>新形式</strong>: payload-0.json（推奨）</li>
-                      <li>• <strong>旧形式</strong>: posts.json（古いエクスポート）</li>
-                      <li>• どちらの形式でも自動判定して処理します</li>
-                    </ul>
-                  </div>
-                  
-                  <div className="p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
-                    <h4 className="font-medium text-yellow-800 mb-1">注意事項：</h4>
-                    <ul className="text-yellow-700 text-sm space-y-1">
-                      <li>• テキスト投稿のみが質問として変換されます</li>
-                      <li>• タグから自動的にテーマ名が判定されます（Helsinki, Stockholm, Copenhagen, Amsterdam）</li>
-                      <li>• 画像や動画投稿は変換されません</li>
-                    </ul>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tumblrエクスポートファイル（payload-0.json または posts.json）
-                    </label>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleFileSelect}
-                      className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                    />
-                  </div>
+
+                  {/* URLインポート */}
+                  {importMethod === 'url' && (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+                        <h3 className="font-medium text-blue-900 mb-2">TumblrブログURLから直接取得：</h3>
+                        <ul className="list-disc list-inside text-blue-800 space-y-1 text-sm">
+                          <li>サポート対象ブログ: base-stockholm, base-helsinki, base-copenhagen, base-amsterdam</li>
+                          <li>Q&A形式の投稿を自動的に抽出します</li>
+                          <li>ブログ名から適切なテーマカテゴリを自動判定</li>
+                        </ul>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          TumblrブログのURL
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="url"
+                            value={tumblrUrl}
+                            onChange={(e) => setTumblrUrl(e.target.value)}
+                            placeholder="https://base-stockholm.tumblr.com/"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <button
+                            onClick={handleUrlImport}
+                            disabled={importStep === 'processing'}
+                            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                          >
+                            {importStep === 'processing' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                            取得
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* URL インポートステータス */}
+                      {urlImportStatus && (
+                        <div className="flex items-center gap-2 p-4 bg-green-50 border border-green-200 rounded-lg">
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                          <span className="text-green-700">{urlImportStatus}</span>
+                        </div>
+                      )}
+
+                      {/* URL インポートエラー */}
+                      {urlImportError && (
+                        <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-lg">
+                          <AlertCircle className="w-5 h-5 text-red-500" />
+                          <span className="text-red-700">{urlImportError}</span>
+                        </div>
+                      )}
+
+                      {/* 実装に関する注意 */}
+                      <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <h4 className="font-medium text-yellow-800 mb-2">実装について：</h4>
+                        <ul className="text-yellow-700 text-sm space-y-1">
+                          <li>• 現在はデモ用のモックデータを表示しています</li>
+                          <li>• 実際の実装にはTumblr APIキーまたはプロキシサーバーが必要です</li>
+                          <li>• ブラウザのCORS制限により、直接APIアクセスできません</li>
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ファイルインポート */}
+                  {importMethod === 'file' && (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-blue-50 rounded-lg">
+                        <h3 className="font-medium text-blue-900 mb-2">移行手順：</h3>
+                        <ol className="list-decimal list-inside text-blue-800 space-y-1">
+                          <li>Tumblrの設定から「データをエクスポート」を選択</li>
+                          <li>ダウンロードされたZIPファイルを展開</li>
+                          <li><strong>「payload-0.json」</strong>ファイルを選択してください</li>
+                          <li>インポートボタンをクリック</li>
+                        </ol>
+                      </div>
+                      
+                      <div className="p-4 bg-green-50 rounded-lg border-l-4 border-green-400">
+                        <h4 className="font-medium text-green-800 mb-1">ファイル形式について：</h4>
+                        <ul className="text-green-700 text-sm space-y-1">
+                          <li>• <strong>新形式</strong>: payload-0.json（推奨）</li>
+                          <li>• <strong>旧形式</strong>: posts.json（古いエクスポート）</li>
+                          <li>• どちらの形式でも自動判定して処理します</li>
+                        </ul>
+                      </div>
+                      
+                      <div className="p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
+                        <h4 className="font-medium text-yellow-800 mb-1">注意事項：</h4>
+                        <ul className="text-yellow-700 text-sm space-y-1">
+                          <li>• テキスト投稿のみが質問として変換されます</li>
+                          <li>• タグから自動的にテーマ名が判定されます（Helsinki, Stockholm, Copenhagen, Amsterdam）</li>
+                          <li>• 画像や動画投稿は変換されません</li>
+                        </ul>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Tumblrエクスポートファイル（payload-0.json または posts.json）
+                        </label>
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleFileSelect}
+                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1160,7 +1334,12 @@ const App = () => {
               {importStep === 'processing' && (
                 <div className="text-center py-8">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-                  <p className="text-gray-600">Tumblrデータを解析中...</p>
+                  <p className="text-gray-600">
+                    {importMethod === 'url' ? 'Tumblrブログから投稿を取得中...' : 'Tumblrデータを解析中...'}
+                  </p>
+                  {urlImportStatus && (
+                    <p className="text-blue-600 mt-2">{urlImportStatus}</p>
+                  )}
                 </div>
               )}
 
@@ -1189,9 +1368,16 @@ const App = () => {
                           <span>投稿者: {question.author}</span>
                           <span>{question.date}</span>
                         </div>
-                        {question.tumblrTags.length > 0 && (
+                        {question.tumblrTags && question.tumblrTags.length > 0 && (
                           <div className="mt-1">
                             <span className="text-xs text-gray-400">タグ: {question.tumblrTags.join(', ')}</span>
+                          </div>
+                        )}
+                        {question.tumblrUrl && (
+                          <div className="mt-1">
+                            <a href={question.tumblrUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:text-blue-700">
+                              元の投稿を見る
+                            </a>
                           </div>
                         )}
                       </div>
@@ -1240,7 +1426,7 @@ const App = () => {
                       onClick={resetImport}
                       className="px-4 py-2 text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
                     >
-                      別のファイルを選択
+                      別の方法を選択
                     </button>
                     <button
                       onClick={executeImport}
