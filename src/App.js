@@ -115,7 +115,64 @@ const App = () => {
     } else if (Array.isArray(tumblrData)) {
       // 新形式: payload-0.json（配列形式）
       console.log('Found root array (new format)');
-      posts = tumblrData;
+      
+      // 各要素の data プロパティを確認
+      tumblrData.forEach((item, index) => {
+        console.log(`Array item ${index}:`, Object.keys(item));
+        if (item.data) {
+          console.log(`Item ${index} has data property:`, Object.keys(item.data));
+          
+          // data プロパティの中身を詳細確認
+          const dataContent = item.data;
+          console.log('Data content structure:', dataContent);
+          
+          // 投稿データを探す
+          const possiblePostKeys = [
+            'posts', 'blog_posts', 'content', 'ugcLinks', 
+            'tumblr_posts', 'user_posts', 'published_posts'
+          ];
+          
+          for (const key of possiblePostKeys) {
+            if (dataContent[key]) {
+              console.log(`Found potential posts in data.${key}:`, dataContent[key]);
+              if (Array.isArray(dataContent[key])) {
+                posts = dataContent[key];
+                console.log(`Using posts from data.${key} (${posts.length} items)`);
+                break;
+              } else if (dataContent[key].link || dataContent[key].url) {
+                console.log(`Found content link in data.${key}:`, dataContent[key]);
+                throw new Error(`投稿データは外部リンクにあります。data.${key} のリンクからダウンロードしてください: ${dataContent[key].link || dataContent[key].url}`);
+              }
+            }
+          }
+          
+          // まだ見つからない場合は、data の全プロパティを配列形式で探す
+          if (posts.length === 0) {
+            for (const [key, value] of Object.entries(dataContent)) {
+              if (Array.isArray(value) && value.length > 0) {
+                console.log(`Checking array property data.${key} (${value.length} items):`, value[0]);
+                // 投稿っぽいプロパティがあるかチェック
+                if (value[0] && typeof value[0] === 'object') {
+                  const sampleKeys = Object.keys(value[0]);
+                  const hasPostProperties = sampleKeys.some(k => 
+                    ['post_url', 'content', 'body', 'text', 'title', 'type', 'blog_name'].includes(k)
+                  );
+                  if (hasPostProperties) {
+                    console.log(`Found posts in data.${key} based on properties:`, sampleKeys);
+                    posts = value;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+      
+      // まだ見つからない場合は元の配列を使用
+      if (posts.length === 0) {
+        posts = tumblrData;
+      }
     } else {
       // その他の構造を探す
       console.log('Searching for alternative structures...');
