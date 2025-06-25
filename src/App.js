@@ -174,20 +174,37 @@ const App = () => {
                   if (key === 'dashboard' && sampleKeys.includes('content_url')) {
                     console.log(`Found dashboard history in data.${key}. Converting to posts...`);
                     const dashboardPosts = value
-                      .filter(item => item.content_url && item.element_type === 'post')
-                      .map((item, index) => ({
-                        type: 'text',
-                        post_url: item.content_url,
-                        title: `ダッシュボード投稿 ${index + 1}`,
-                        body: `この投稿は ${item.serve_time} にダッシュボードで表示されました。`,
-                        date: item.serve_time,
-                        blog_name: 'ダッシュボード履歴',
-                        tags: []
-                      }));
+                      .filter(item => item.content_url && item.content_url !== '\\N' && item.element_type === 'post')
+                      .map((item, index) => {
+                        // URLからブログ名を抽出
+                        const urlMatch = item.content_url.match(/http:\/\/([^.]+)\.tumblr\.com/);
+                        const sourceBlog = urlMatch ? urlMatch[1] : 'unknown';
+                        
+                        // ブログ名からテーマを推測
+                        let category = 'Helsinki';
+                        if (sourceBlog.includes('design') || sourceBlog.includes('graphic')) {
+                          category = 'Stockholm';
+                        } else if (sourceBlog.includes('bauhaus') || sourceBlog.includes('movement')) {
+                          category = 'Copenhagen';
+                        } else if (sourceBlog.includes('ak47') || sourceBlog.includes('creative')) {
+                          category = 'Amsterdam';
+                        }
+                        
+                        return {
+                          type: 'text',
+                          post_url: item.content_url,
+                          title: `${sourceBlog} ブログからの参考投稿 ${index + 1}`,
+                          body: `この投稿は ${item.serve_time} にダッシュボードで閲覧されました。元の投稿: ${item.content_url}`,
+                          date: item.serve_time.split('T')[0],
+                          blog_name: `参考: ${sourceBlog}`,
+                          tags: ['dashboard', 'reference', sourceBlog],
+                          id: `dashboard_${index}`
+                        };
+                      });
                     
                     if (dashboardPosts.length > 0) {
                       console.log(`Created ${dashboardPosts.length} posts from dashboard history`);
-                      posts = dashboardPosts;
+                      posts = dashboardPosts.slice(0, 20); // 最大20件に制限
                       break;
                     }
                   }
@@ -195,19 +212,93 @@ const App = () => {
                   // ハイライト投稿から抽出する可能性
                   if (key === 'highlighted_posts' && (sampleKeys.includes('post_urls') || sampleKeys.includes('blog_name'))) {
                     console.log(`Found highlighted posts in data.${key}. Converting to posts...`);
-                    const highlightedPosts = value
-                      .filter(item => item.post_urls && item.post_urls.length > 0)
-                      .map((item, index) => ({
-                        type: 'text',
-                        post_url: item.post_urls[0],
-                        title: `${item.blog_name} のハイライト投稿`,
-                        body: `このブログ（${item.blog_name}）のハイライト投稿です。`,
-                        blog_name: item.blog_name,
-                        tags: []
-                      }));
+                    const highlightedPosts = [];
+                    
+                    value.forEach(item => {
+                      if (item.post_urls && item.post_urls.length > 0) {
+                        item.post_urls.forEach((url, urlIndex) => {
+                          // URLからタイトルを抽出（URLデコード）
+                          let title = `${item.blog_name} のハイライト投稿 ${urlIndex + 1}`;
+                          try {
+                            // URLの最後の部分からタイトルを抽出
+                            const urlParts = url.split('/');
+                            const lastPart = urlParts[urlParts.length - 1];
+                            if (lastPart && lastPart.length > 10) {
+                              // URLエンコードされた日本語をデコード
+                              const decodedTitle = decodeURIComponent(lastPart.replace(/-/g, ' '));
+                              if (decodedTitle.length > 5 && decodedTitle.length < 100) {
+                                title = decodedTitle.substring(0, 60) + (decodedTitle.length > 60 ? '...' : '');
+                              }
+                            }
+                          } catch (e) {
+                            // デコードエラーの場合はデフォルトタイトルを使用
+                          }
+                          
+                          // ブログ名からテーマを判定
+                          let category = 'Helsinki';
+                          if (item.blog_name === 'base-stockholm') {
+                            category = 'Stockholm';
+                          } else if (item.blog_name === 'base-copenhagen') {
+                            category = 'Copenhagen';  
+                          } else if (item.blog_name === 'base-amsterdam') {
+                            category = 'Amsterdam';
+                          } else if (item.blog_name === 'base-helsinki') {
+                            category = 'Helsinki';
+                          }
+                          
+                          // 投稿内容を生成
+                          let content = `この質問は ${item.blog_name} ブログのハイライト投稿です。`;
+                          
+                          // タイトルから内容を推測
+                          const titleLower = title.toLowerCase();
+                          if (titleLower.includes('instagram') || titleLower.includes('インスタ')) {
+                            content = 'Instagram連携機能について。設定方法や表示に関する質問です。';
+                          } else if (titleLower.includes('apps') || titleLower.includes('アプリ')) {
+                            content = 'BASE Appsの機能追加や設定について。カスタム機能の実装に関する質問です。';
+                          } else if (titleLower.includes('バナー') || titleLower.includes('banner')) {
+                            content = 'バナー画像の設定や表示について。ヘッダーやフッターエリアのカスタマイズに関する質問です。';
+                          } else if (titleLower.includes('セット') || titleLower.includes('おすすめ')) {
+                            content = 'おすすめ商品やセット販売の表示機能について。商品ページのカスタマイズに関する質問です。';
+                          } else if (titleLower.includes('会員') || titleLower.includes('登録')) {
+                            content = '会員登録機能について。ユーザー登録やログイン機能のカスタマイズに関する質問です。';
+                          } else if (titleLower.includes('メニュー') || titleLower.includes('ナビ')) {
+                            content = 'ナビゲーションメニューの設定について。メニュー項目の追加や表示に関する質問です。';
+                          } else if (titleLower.includes('about') || titleLower.includes('写真')) {
+                            content = 'Aboutページのレイアウトについて。写真の配置や表示方法に関する質問です。';
+                          }
+                          
+                          // 投稿IDから日付を推測（Tumblrの投稿IDは時系列）
+                          let date = new Date().toISOString().split('T')[0];
+                          const postIdMatch = url.match(/\/post\/(\d+)/);
+                          if (postIdMatch) {
+                            const postId = parseInt(postIdMatch[1]);
+                            // Tumblr投稿IDから大まかな日付を推測（非常に大雑把）
+                            if (postId > 780000000000000000) {
+                              date = '2024-04-15';
+                            } else if (postId > 770000000000000000) {
+                              date = '2024-01-15';  
+                            } else {
+                              date = '2023-10-15';
+                            }
+                          }
+                          
+                          highlightedPosts.push({
+                            type: 'text',
+                            post_url: url,
+                            title: title,
+                            body: content,
+                            blog_name: item.blog_name,
+                            date: date,
+                            tags: ['highlighted', item.blog_name.replace('base-', ''), 'base'],
+                            id: `highlighted_${item.blog_name}_${urlIndex}`,
+                            category: category
+                          });
+                        });
+                      }
+                    });
                     
                     if (highlightedPosts.length > 0) {
-                      console.log(`Created ${highlightedPosts.length} posts from highlighted posts`);
+                      console.log(`Created ${highlightedPosts.length} posts from highlighted posts:`, highlightedPosts.map(p => `${p.blog_name}: ${p.title}`));
                       posts = highlightedPosts;
                       break;
                     }
