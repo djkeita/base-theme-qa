@@ -63,13 +63,48 @@ const App = () => {
   const fetchRealTumblrData = async (blogName, apiKey) => {
     const apiUrl = `https://api.tumblr.com/v2/blog/${blogName}.tumblr.com/posts`;
     
-    // 方法1：直接API呼び出し（CORS制限あり）
     try {
-      const response = await fetch(`${apiUrl}?api_key=${apiKey}&type=text&limit=20`);
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      // まず質問投稿（answer タイプ）を取得
+      let allQuestions = [];
       
-      const data = await response.json();
-      return parseTumblrApiResponse(data);
+      // 1. Ask機能による質問・回答投稿を取得
+      try {
+        const answerResponse = await fetch(`${apiUrl}?api_key=${apiKey}&type=answer&limit=20`);
+        if (answerResponse.ok) {
+          const answerData = await answerResponse.json();
+          const askQuestions = parseTumblrAnswerPosts(answerData);
+          allQuestions = [...allQuestions, ...askQuestions];
+          console.log(`Ask投稿から ${askQuestions.length} 件の質問を取得`);
+        }
+      } catch (answerError) {
+        console.log('Ask投稿の取得に失敗:', answerError);
+      }
+      
+      // 2. テキスト投稿からQ&A形式のものを取得
+      try {
+        const textResponse = await fetch(`${apiUrl}?api_key=${apiKey}&type=text&limit=20`);
+        if (textResponse.ok) {
+          const textData = await textResponse.json();
+          const textQuestions = parseTumblrTextPosts(textData);
+          allQuestions = [...allQuestions, ...textQuestions];
+          console.log(`テキスト投稿から ${textQuestions.length} 件の質問を取得`);
+        }
+      } catch (textError) {
+        console.log('テキスト投稿の取得に失敗:', textError);
+      }
+      
+      // 3. すべての投稿タイプから検索（フォールバック）
+      if (allQuestions.length === 0) {
+        const allResponse = await fetch(`${apiUrl}?api_key=${apiKey}&limit=50`);
+        if (allResponse.ok) {
+          const allData = await allResponse.json();
+          allQuestions = parseAllTumblrPosts(allData);
+          console.log(`全投稿から ${allQuestions.length} 件の質問を取得`);
+        }
+      }
+      
+      return allQuestions;
+      
     } catch (corsError) {
       console.log('Direct API call failed (CORS):', corsError);
       
@@ -80,22 +115,73 @@ const App = () => {
 
   // JSONP形式でのAPI呼び出し（CORS回避）
   const fetchWithJSONP = (blogName, apiKey) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        let allQuestions = [];
+        
+        // 1. Ask投稿を取得
+        const askQuestions = await fetchJSONPByType(blogName, apiKey, 'answer');
+        allQuestions = [...allQuestions, ...askQuestions];
+        
+        // 2. テキスト投稿を取得
+        const textQuestions = await fetchJSONPByType(blogName, apiKey, 'text');
+        allQuestions = [...allQuestions, ...textQuestions];
+        
+        // 3. その他の投稿タイプも取得
+        if (allQuestions.length === 0) {
+          const allQuestions = await fetchJSONPByType(blogName, apiKey, null);
+          allQuestions = [...allQuestions, ...allQuestions];
+        }
+        
+        resolve(allQuestions);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  };
+
+  // JSONP形式で特定タイプの投稿を取得
+  const fetchJSONPByType = (blogName, apiKey, postType) => {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      const callbackName = `tumblr_callback_${Date.now()}`;
+      const callbackName = `tumblr_callback_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       // グローバルコールバック関数を設定
       window[callbackName] = (data) => {
         document.body.removeChild(script);
         delete window[callbackName];
-        resolve(parseTumblrApiResponse(data));
+        
+        try {
+          let questions = [];
+          
+          if (postType === 'answer') {
+            questions = parseTumblrAnswerPosts(data);
+          } else if (postType === 'text') {
+            questions = parseTumblrTextPosts(data);
+          } else {
+            questions = parseAllTumblrPosts(data);
+          }
+          
+          resolve(questions);
+        } catch (parseError) {
+          console.error('データ解析エラー:', parseError);
+          resolve([]);
+        }
       };
       
-      script.src = `https://api.tumblr.com/v2/blog/${blogName}.tumblr.com/posts?api_key=${apiKey}&type=text&limit=20&jsonp=${callbackName}`;
+      // URLを構築
+      let url = `https://api.tumblr.com/v2/blog/${blogName}.tumblr.com/posts?api_key=${apiKey}&jsonp=${callbackName}&limit=20`;
+      if (postType) {
+        url += `&type=${postType}`;
+      }
+      
+      script.src = url;
       script.onerror = () => {
-        document.body.removeChild(script);
+        if (document.body.contains(script)) {
+          document.body.removeChild(script);
+        }
         delete window[callbackName];
-        reject(new Error('JSONP request failed'));
+        reject(new Error(`JSONP request failed for type: ${postType || 'all'}`));
       };
       
       document.body.appendChild(script);
@@ -103,59 +189,196 @@ const App = () => {
       // タイムアウト設定
       setTimeout(() => {
         if (window[callbackName]) {
-          document.body.removeChild(script);
+          if (document.body.contains(script)) {
+            document.body.removeChild(script);
+          }
           delete window[callbackName];
-          reject(new Error('Request timeout'));
+          reject(new Error(`Request timeout for type: ${postType || 'all'}`));
         }
       }, 10000);
     });
   };
 
-  // Tumblr APIレスポンスを質問形式に変換
-  const parseTumblrApiResponse = (apiData) => {
+  // Tumblr Ask機能の質問投稿を解析（answer タイプ）
+  const parseTumblrAnswerPosts = (apiData) => {
+    const posts = apiData.response?.posts || [];
+    const questions = [];
+    
+    posts.forEach((post, index) => {
+      if (post.type === 'answer') {
+        // Ask機能による質問・回答投稿
+        const question = {
+          id: `tumblr_ask_${post.id}`,
+          title: post.question || 'Ask投稿',
+          content: post.question || '',
+          category: determineCategoryFromTags(post.tags || []),
+          author: post.asking_name || post.asking_url || '匿名ユーザー',
+          date: formatTumblrDate(post.date),
+          answered: !!post.answer,
+          answer: post.answer || '',
+          answerDate: post.answer ? formatTumblrDate(post.date) : '',
+          tumblrUrl: post.post_url,
+          tumblrTags: post.tags || [],
+          postType: 'ask'
+        };
+        
+        questions.push(question);
+      }
+    });
+    
+    console.log(`Ask投稿解析結果: ${questions.length}件`);
+    return questions;
+  };
+
+  // テキスト投稿から質問形式のものを抽出
+  const parseTumblrTextPosts = (apiData) => {
     const posts = apiData.response?.posts || [];
     const questions = [];
     
     posts.forEach((post, index) => {
       if (post.type === 'text' && (post.title || post.body)) {
-        // カテゴリの決定（タグからテーマ名を推測）
-        let category = 'Helsinki'; // デフォルト
-        const tags = post.tags || [];
-        const tagString = tags.join(' ').toLowerCase();
+        const title = post.title || '';
+        const body = stripHtml(post.body || '');
         
-        if (tagString.includes('stockholm') || tagString.includes('minimal')) {
-          category = 'Stockholm';
-        } else if (tagString.includes('copenhagen') || tagString.includes('modern')) {
-          category = 'Copenhagen';
-        } else if (tagString.includes('amsterdam') || tagString.includes('creative')) {
-          category = 'Amsterdam';
+        // 質問らしい投稿かどうかを判定
+        const isQuestionLike = 
+          title.includes('?') || title.includes('？') ||
+          title.includes('質問') || title.includes('教えて') ||
+          title.includes('どうすれば') || title.includes('方法') ||
+          title.includes('できない') || title.includes('エラー') ||
+          title.includes('問題') || title.includes('困って') ||
+          body.includes('?') || body.includes('？');
+        
+        // ブログ運営者の告知投稿を除外
+        const isAnnouncement = 
+          title.includes('追加しました') || title.includes('お知らせ') ||
+          title.includes('リリース') || title.includes('更新') ||
+          title.includes('新機能') || title.includes('アップデート') ||
+          body.includes('追加しました') || body.includes('リリースしました');
+        
+        if (isQuestionLike && !isAnnouncement) {
+          const question = {
+            id: `tumblr_text_${post.id}`,
+            title: title || body.substring(0, 50) + '...',
+            content: body,
+            category: determineCategoryFromTags(post.tags || []),
+            author: extractAuthorFromPost(post),
+            date: formatTumblrDate(post.date),
+            answered: false, // テキスト投稿は未回答として扱う
+            tumblrUrl: post.post_url,
+            tumblrTags: post.tags || [],
+            postType: 'text'
+          };
+          
+          questions.push(question);
         }
-
-        // HTMLタグを除去
-        const stripHtml = (html) => {
-          if (!html) return '';
-          const tmp = document.createElement('div');
-          tmp.innerHTML = html;
-          return tmp.textContent || tmp.innerText || '';
-        };
-
-        const question = {
-          id: `tumblr_api_${post.id}`,
-          title: post.title || stripHtml(post.body).substring(0, 50) + '...',
-          content: stripHtml(post.body),
-          category: category,
-          author: post.blog_name || 'Tumblrユーザー',
-          date: post.date.split(' ')[0], // 日付部分のみ抽出
-          answered: false,
-          tumblrUrl: post.post_url,
-          tumblrTags: tags
-        };
-
-        questions.push(question);
       }
     });
-
+    
+    console.log(`テキスト投稿解析結果: ${questions.length}件の質問形式投稿`);
     return questions;
+  };
+
+  // 全投稿タイプから質問を抽出（フォールバック）
+  const parseAllTumblrPosts = (apiData) => {
+    const posts = apiData.response?.posts || [];
+    const questions = [];
+    
+    posts.forEach((post, index) => {
+      // Ask投稿
+      if (post.type === 'answer' && post.question) {
+        questions.push({
+          id: `tumblr_all_ask_${post.id}`,
+          title: post.question,
+          content: post.question,
+          category: determineCategoryFromTags(post.tags || []),
+          author: post.asking_name || '匿名ユーザー',
+          date: formatTumblrDate(post.date),
+          answered: !!post.answer,
+          answer: post.answer || '',
+          answerDate: post.answer ? formatTumblrDate(post.date) : '',
+          tumblrUrl: post.post_url,
+          tumblrTags: post.tags || [],
+          postType: 'ask'
+        });
+      }
+      
+      // チャット投稿（Q&A形式の可能性）
+      else if (post.type === 'chat' && post.dialogue) {
+        const dialogue = post.dialogue;
+        if (dialogue && dialogue.length >= 2) {
+          const question = dialogue[0];
+          const answer = dialogue[1];
+          
+          questions.push({
+            id: `tumblr_chat_${post.id}`,
+            title: post.title || question.phrase || 'チャット形式のQ&A',
+            content: question.phrase || '',
+            category: determineCategoryFromTags(post.tags || []),
+            author: question.name || 'ユーザー',
+            date: formatTumblrDate(post.date),
+            answered: true,
+            answer: answer.phrase || '',
+            answerDate: formatTumblrDate(post.date),
+            tumblrUrl: post.post_url,
+            tumblrTags: post.tags || [],
+            postType: 'chat'
+          });
+        }
+      }
+    });
+    
+    console.log(`全投稿解析結果: ${questions.length}件の質問`);
+    return questions;
+  };
+
+  // ヘルパー関数: HTMLタグを除去
+  const stripHtml = (html) => {
+    if (!html) return '';
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+  };
+
+  // ヘルパー関数: タグからカテゴリを判定
+  const determineCategoryFromTags = (tags) => {
+    const tagString = tags.join(' ').toLowerCase();
+    
+    if (tagString.includes('stockholm') || tagString.includes('minimal') || tagString.includes('シンプル')) {
+      return 'Stockholm';
+    } else if (tagString.includes('copenhagen') || tagString.includes('modern') || tagString.includes('モダン')) {
+      return 'Copenhagen';
+    } else if (tagString.includes('amsterdam') || tagString.includes('creative') || tagString.includes('クリエイティブ')) {
+      return 'Amsterdam';
+    } else {
+      return 'Helsinki'; // デフォルト
+    }
+  };
+
+  // ヘルパー関数: 投稿者を抽出
+  const extractAuthorFromPost = (post) => {
+    // ブログ名から投稿者を推測
+    if (post.blog_name && post.blog_name.includes('base-')) {
+      return `${post.blog_name} ユーザー`;
+    }
+    
+    // 投稿内容から投稿者を推測
+    const body = stripHtml(post.body || '');
+    if (body.includes('ユーザー') || body.includes('お客様')) {
+      return 'サイト利用者';
+    }
+    
+    return post.blog_name || 'Tumblrユーザー';
+  };
+
+  // ヘルパー関数: 日付フォーマット
+  const formatTumblrDate = (dateString) => {
+    try {
+      const date = new Date(dateString);
+      return date.toISOString().split('T')[0];
+    } catch (e) {
+      return new Date().toISOString().split('T')[0];
+    }
   };
 
   const filteredQuestions = questions.filter(q => {
@@ -1334,11 +1557,13 @@ const App = () => {
                   {importMethod === 'url' && (
                     <div className="space-y-4">
                       <div className="p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
-                        <h3 className="font-medium text-blue-900 mb-2">TumblrブログURLから直接取得：</h3>
+                        <h3 className="font-medium text-blue-900 mb-2">TumblrブログURLから質問を取得：</h3>
                         <ul className="list-disc list-inside text-blue-800 space-y-1 text-sm">
+                          <li><strong>Ask機能の質問</strong>：ユーザーからの質問と回答を取得</li>
+                          <li><strong>質問形式の投稿</strong>：タイトルや本文に「?」「質問」「教えて」などを含む投稿</li>
+                          <li><strong>チャット形式</strong>：Q&A形式のチャット投稿</li>
+                          <li>ブログ運営者の告知投稿は自動的に除外されます</li>
                           <li>サポート対象ブログ: base-stockholm, base-helsinki, base-copenhagen, base-amsterdam</li>
-                          <li>Q&A形式の投稿を自動的に抽出します</li>
-                          <li>ブログ名から適切なテーマカテゴリを自動判定</li>
                         </ul>
                       </div>
                       
@@ -1391,7 +1616,7 @@ const App = () => {
                         <div className="text-sm text-gray-700 space-y-2">
                           <p><strong>1. APIキーの設定：</strong></p>
                           <div className="bg-gray-100 p-2 rounded text-xs font-mono">
-                            const API_KEY = 'tnIPpRJ51gGtRKUleFH1ktfb87FEn6bnQtPVseX8s492T6TDYE';
+                            const API_KEY = 'YOUR_TUMBLR_API_KEY_HERE';
                           </div>
                           
                           <p><strong>2. セキュリティ対策：</strong></p>
