@@ -59,6 +59,105 @@ const App = () => {
 
   const categories = ['Helsinki', 'Stockholm', 'Copenhagen', 'Amsterdam'];
 
+  // 【追加】実際のTumblr API呼び出し関数
+  const fetchRealTumblrData = async (blogName, apiKey) => {
+    const apiUrl = `https://api.tumblr.com/v2/blog/${blogName}.tumblr.com/posts`;
+    
+    // 方法1：直接API呼び出し（CORS制限あり）
+    try {
+      const response = await fetch(`${apiUrl}?api_key=${apiKey}&type=text&limit=20`);
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      
+      const data = await response.json();
+      return parseTumblrApiResponse(data);
+    } catch (corsError) {
+      console.log('Direct API call failed (CORS):', corsError);
+      
+      // 方法2：JSONP形式での呼び出し
+      return await fetchWithJSONP(blogName, apiKey);
+    }
+  };
+
+  // JSONP形式でのAPI呼び出し（CORS回避）
+  const fetchWithJSONP = (blogName, apiKey) => {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const callbackName = `tumblr_callback_${Date.now()}`;
+      
+      // グローバルコールバック関数を設定
+      window[callbackName] = (data) => {
+        document.body.removeChild(script);
+        delete window[callbackName];
+        resolve(parseTumblrApiResponse(data));
+      };
+      
+      script.src = `https://api.tumblr.com/v2/blog/${blogName}.tumblr.com/posts?api_key=${apiKey}&type=text&limit=20&jsonp=${callbackName}`;
+      script.onerror = () => {
+        document.body.removeChild(script);
+        delete window[callbackName];
+        reject(new Error('JSONP request failed'));
+      };
+      
+      document.body.appendChild(script);
+      
+      // タイムアウト設定
+      setTimeout(() => {
+        if (window[callbackName]) {
+          document.body.removeChild(script);
+          delete window[callbackName];
+          reject(new Error('Request timeout'));
+        }
+      }, 10000);
+    });
+  };
+
+  // Tumblr APIレスポンスを質問形式に変換
+  const parseTumblrApiResponse = (apiData) => {
+    const posts = apiData.response?.posts || [];
+    const questions = [];
+    
+    posts.forEach((post, index) => {
+      if (post.type === 'text' && (post.title || post.body)) {
+        // カテゴリの決定（タグからテーマ名を推測）
+        let category = 'Helsinki'; // デフォルト
+        const tags = post.tags || [];
+        const tagString = tags.join(' ').toLowerCase();
+        
+        if (tagString.includes('stockholm') || tagString.includes('minimal')) {
+          category = 'Stockholm';
+        } else if (tagString.includes('copenhagen') || tagString.includes('modern')) {
+          category = 'Copenhagen';
+        } else if (tagString.includes('amsterdam') || tagString.includes('creative')) {
+          category = 'Amsterdam';
+        }
+
+        // HTMLタグを除去
+        const stripHtml = (html) => {
+          if (!html) return '';
+          const tmp = document.createElement('div');
+          tmp.innerHTML = html;
+          return tmp.textContent || tmp.innerText || '';
+        };
+
+        const question = {
+          id: `tumblr_api_${post.id}`,
+          title: post.title || stripHtml(post.body).substring(0, 50) + '...',
+          content: stripHtml(post.body),
+          category: category,
+          author: post.blog_name || 'Tumblrユーザー',
+          date: post.date.split(' ')[0], // 日付部分のみ抽出
+          answered: false,
+          tumblrUrl: post.post_url,
+          tumblrTags: tags
+        };
+
+        questions.push(question);
+      }
+    });
+
+    return questions;
+  };
+
   const filteredQuestions = questions.filter(q => {
     const matchesSearch = q.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          q.content.toLowerCase().includes(searchTerm.toLowerCase());
@@ -96,7 +195,7 @@ const App = () => {
     setAnsweringId(null);
   };
 
-  // TumblrブログURLからデータを取得（デモ版）
+  // TumblrブログURLからデータを取得
   const fetchTumblrFromUrl = async (blogUrl) => {
     setUrlImportStatus('TumblrブログURLから投稿を取得中...');
     setUrlImportError('');
@@ -105,7 +204,22 @@ const App = () => {
       // ブログ名を抽出
       const blogName = blogUrl.replace('https://', '').replace('.tumblr.com/', '').replace('.tumblr.com', '');
       
-      // デモ用：各ブログごとに異なるモックデータを生成
+      // 【実際のAPIキー実装】ここにAPIキーを設定
+      const API_KEY = 'tnIPpRJ51gGtRKUleFH1ktfb87FEn6bnQtPVseX8s492T6TDYE'; // あなたのOAuth Consumer Key
+      
+      // 実際のTumblr API呼び出し
+      try {
+        const realData = await fetchRealTumblrData(blogName, API_KEY);
+        if (realData && realData.length > 0) {
+          setUrlImportStatus(`${realData.length}件の質問を取得しました`);
+          return realData;
+        }
+      } catch (apiError) {
+        console.log('API call failed, falling back to mock data:', apiError);
+        setUrlImportStatus('API呼び出しに失敗しました。デモデータを使用します。');
+      }
+      
+      // フォールバック：デモ用モックデータ
       const mockQuestionsData = {
         'base-stockholm': [
           {
@@ -1271,14 +1385,38 @@ const App = () => {
                         </div>
                       )}
 
-                      {/* 実装に関する注意 */}
-                      <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <h4 className="font-medium text-yellow-800 mb-2">実装について：</h4>
-                        <ul className="text-yellow-700 text-sm space-y-1">
-                          <li>• 現在はデモ用のモックデータを表示しています</li>
-                          <li>• 実際の実装にはTumblr APIキーまたはプロキシサーバーが必要です</li>
-                          <li>• ブラウザのCORS制限により、直接APIアクセスできません</li>
-                        </ul>
+                      {/* 実装ガイドと設定 */}
+                      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                        <h4 className="font-medium text-gray-800 mb-2">実際のAPI実装手順：</h4>
+                        <div className="text-sm text-gray-700 space-y-2">
+                          <p><strong>1. APIキーの設定：</strong></p>
+                          <div className="bg-gray-100 p-2 rounded text-xs font-mono">
+                            const API_KEY = 'tnIPpRJ51gGtRKUleFH1ktfb87FEn6bnQtPVseX8s492T6TDYE';
+                          </div>
+                          
+                          <p><strong>2. セキュリティ対策：</strong></p>
+                          <ul className="ml-4 list-disc space-y-1 text-xs">
+                            <li>本番環境では環境変数を使用</li>
+                            <li>APIキーをクライアントサイドに直接書かない</li>
+                            <li>プロキシサーバー経由での実装を推奨</li>
+                          </ul>
+                          
+                          <p><strong>3. 環境変数の使用例：</strong></p>
+                          <div className="bg-gray-100 p-2 rounded text-xs font-mono">
+                            const API_KEY = process.env.REACT_APP_TUMBLR_API_KEY;
+                          </div>
+                          
+                          <p><strong>4. プロキシサーバー実装例：</strong></p>
+                          <div className="bg-gray-100 p-2 rounded text-xs font-mono">
+                            fetch('/api/tumblr/posts', {'{'}
+                            <br />　method: 'POST',
+                            <br />　body: JSON.stringify({'{'}blogName{'}'}),
+                            <br />　headers: {'{'}
+                            <br />　　'Content-Type': 'application/json'
+                            <br />　{'}'}
+                            <br />{'}'})
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
