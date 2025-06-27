@@ -66,6 +66,7 @@ const App = () => {
     try {
       // まず質問投稿（answer タイプ）を取得
       let allQuestions = [];
+      const processedIds = new Set(); // 重複除去用
       
       // 1. Ask機能による質問・回答投稿を取得
       try {
@@ -73,7 +74,15 @@ const App = () => {
         if (answerResponse.ok) {
           const answerData = await answerResponse.json();
           const askQuestions = parseTumblrAnswerPosts(answerData);
-          allQuestions = [...allQuestions, ...askQuestions];
+          
+          // 重複チェックして追加
+          askQuestions.forEach(question => {
+            if (!processedIds.has(question.id)) {
+              processedIds.add(question.id);
+              allQuestions.push(question);
+            }
+          });
+          
           console.log(`Ask投稿から ${askQuestions.length} 件の質問を取得`);
         }
       } catch (answerError) {
@@ -86,23 +95,69 @@ const App = () => {
         if (textResponse.ok) {
           const textData = await textResponse.json();
           const textQuestions = parseTumblrTextPosts(textData);
-          allQuestions = [...allQuestions, ...textQuestions];
+          
+          // 重複チェックして追加
+          textQuestions.forEach(question => {
+            if (!processedIds.has(question.id)) {
+              processedIds.add(question.id);
+              allQuestions.push(question);
+            }
+          });
+          
           console.log(`テキスト投稿から ${textQuestions.length} 件の質問を取得`);
         }
       } catch (textError) {
         console.log('テキスト投稿の取得に失敗:', textError);
       }
       
-      // 3. すべての投稿タイプから検索（フォールバック）
-      if (allQuestions.length === 0) {
-        const allResponse = await fetch(`${apiUrl}?api_key=${apiKey}&limit=50`);
-        if (allResponse.ok) {
-          const allData = await allResponse.json();
-          allQuestions = parseAllTumblrPosts(allData);
-          console.log(`全投稿から ${allQuestions.length} 件の質問を取得`);
+      // 3. チャット投稿を取得
+      try {
+        const chatResponse = await fetch(`${apiUrl}?api_key=${apiKey}&type=chat&limit=20`);
+        if (chatResponse.ok) {
+          const chatData = await chatResponse.json();
+          const chatQuestions = parseTumblrChatPosts(chatData);
+          
+          // 重複チェックして追加
+          chatQuestions.forEach(question => {
+            if (!processedIds.has(question.id)) {
+              processedIds.add(question.id);
+              allQuestions.push(question);
+            }
+          });
+          
+          console.log(`チャット投稿から ${chatQuestions.length} 件の質問を取得`);
+        }
+      } catch (chatError) {
+        console.log('チャット投稿の取得に失敗:', chatError);
+      }
+      
+      // 4. 結果が少ない場合はすべての投稿タイプから検索（フォールバック）
+      if (allQuestions.length < 5) {
+        try {
+          const allResponse = await fetch(`${apiUrl}?api_key=${apiKey}&limit=50`);
+          if (allResponse.ok) {
+            const allData = await allResponse.json();
+            const fallbackQuestions = parseAllTumblrPosts(allData);
+            
+            // 重複チェックして追加
+            fallbackQuestions.forEach(question => {
+              if (!processedIds.has(question.id)) {
+                processedIds.add(question.id);
+                allQuestions.push(question);
+              }
+            });
+            
+            console.log(`全投稿から ${fallbackQuestions.length} 件の追加質問を取得`);
+          }
+        } catch (allError) {
+          console.log('全投稿の取得に失敗:', allError);
         }
       }
       
+      // 5. 内容重複チェック（タイトルと内容の類似性で判定）
+      allQuestions = removeDuplicateContent(allQuestions);
+      
+      console.log(`最終結果: ${allQuestions.length} 件のユニークな質問`);
       return allQuestions;
       
     } catch (corsError) {
@@ -111,6 +166,29 @@ const App = () => {
       // 方法2：JSONP形式での呼び出し
       return await fetchWithJSONP(blogName, apiKey);
     }
+  };
+
+  // 内容重複除去関数
+  const removeDuplicateContent = (questions) => {
+    const uniqueQuestions = [];
+    const seenContent = new Set();
+    
+    questions.forEach(question => {
+      // タイトルと内容の最初の100文字を結合してハッシュ化
+      const contentHash = (question.title + question.content.substring(0, 100))
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, ''); // 日本語対応
+      
+      if (!seenContent.has(contentHash)) {
+        seenContent.add(contentHash);
+        uniqueQuestions.push(question);
+      } else {
+        console.log(`重複コンテンツを除外: ${question.title.substring(0, 30)}...`);
+      }
+    });
+    
+    return uniqueQuestions;
   };
 
   // JSONP形式でのAPI呼び出し（CORS回避）
@@ -207,26 +285,31 @@ const App = () => {
     posts.forEach((post, index) => {
       if (post.type === 'answer') {
         // Ask機能による質問・回答投稿
-        const question = {
-          id: `tumblr_ask_${post.id}`,
-          title: post.question || 'Ask投稿',
-          content: post.question || '',
-          category: determineCategoryFromTags(post.tags || []),
-          author: post.asking_name || post.asking_url || '匿名ユーザー',
-          date: formatTumblrDate(post.date),
-          answered: !!post.answer,
-          answer: post.answer || '',
-          answerDate: post.answer ? formatTumblrDate(post.date) : '',
-          tumblrUrl: post.post_url,
-          tumblrTags: post.tags || [],
-          postType: 'ask'
-        };
+        const cleanQuestion = stripHtml(post.question || '');
+        const cleanAnswer = stripHtml(post.answer || '');
         
-        questions.push(question);
+        if (cleanQuestion.trim()) { // 空の質問は除外
+          const question = {
+            id: `tumblr_ask_${post.id}`,
+            title: cleanQuestion.length > 80 ? cleanQuestion.substring(0, 80) + '...' : cleanQuestion,
+            content: cleanQuestion,
+            category: determineCategoryFromTags(post.tags || []),
+            author: post.asking_name || post.asking_url || '匿名ユーザー',
+            date: formatTumblrDate(post.date),
+            answered: !!cleanAnswer,
+            answer: cleanAnswer,
+            answerDate: cleanAnswer ? formatTumblrDate(post.date) : '',
+            tumblrUrl: post.post_url,
+            tumblrTags: post.tags || [],
+            postType: 'ask'
+          };
+          
+          questions.push(question);
+        }
       }
     });
     
-    console.log(`Ask投稿解析結果: ${questions.length}件`);
+    console.log(`Ask投稿解析結果: ${questions.length}件の有効な質問`);
     return questions;
   };
 
@@ -237,30 +320,34 @@ const App = () => {
     
     posts.forEach((post, index) => {
       if (post.type === 'text' && (post.title || post.body)) {
-        const title = post.title || '';
-        const body = stripHtml(post.body || '');
+        const cleanTitle = stripHtml(post.title || '');
+        const cleanBody = stripHtml(post.body || '');
         
         // 質問らしい投稿かどうかを判定
         const isQuestionLike = 
-          title.includes('?') || title.includes('？') ||
-          title.includes('質問') || title.includes('教えて') ||
-          title.includes('どうすれば') || title.includes('方法') ||
-          title.includes('できない') || title.includes('エラー') ||
-          title.includes('問題') || title.includes('困って') ||
-          body.includes('?') || body.includes('？');
+          cleanTitle.includes('?') || cleanTitle.includes('？') ||
+          cleanTitle.includes('質問') || cleanTitle.includes('教えて') ||
+          cleanTitle.includes('どうすれば') || cleanTitle.includes('方法') ||
+          cleanTitle.includes('できない') || cleanTitle.includes('エラー') ||
+          cleanTitle.includes('問題') || cleanTitle.includes('困って') ||
+          cleanTitle.includes('可能でしょうか') || cleanTitle.includes('いかがでしょうか') ||
+          cleanBody.includes('?') || cleanBody.includes('？') ||
+          cleanBody.includes('教えてください') || cleanBody.includes('お願いします');
         
         // ブログ運営者の告知投稿を除外
         const isAnnouncement = 
-          title.includes('追加しました') || title.includes('お知らせ') ||
-          title.includes('リリース') || title.includes('更新') ||
-          title.includes('新機能') || title.includes('アップデート') ||
-          body.includes('追加しました') || body.includes('リリースしました');
+          cleanTitle.includes('追加しました') || cleanTitle.includes('お知らせ') ||
+          cleanTitle.includes('リリース') || cleanTitle.includes('更新') ||
+          cleanTitle.includes('新機能') || cleanTitle.includes('アップデート') ||
+          cleanTitle.includes('実装しました') || cleanTitle.includes('対応しました') ||
+          cleanBody.includes('追加しました') || cleanBody.includes('リリースしました') ||
+          cleanBody.includes('実装いたしました');
         
-        if (isQuestionLike && !isAnnouncement) {
+        if (isQuestionLike && !isAnnouncement && (cleanTitle.trim() || cleanBody.trim())) {
           const question = {
             id: `tumblr_text_${post.id}`,
-            title: title || body.substring(0, 50) + '...',
-            content: body,
+            title: cleanTitle || cleanBody.substring(0, 50) + '...',
+            content: cleanBody || cleanTitle,
             category: determineCategoryFromTags(post.tags || []),
             author: extractAuthorFromPost(post),
             date: formatTumblrDate(post.date),
@@ -279,6 +366,45 @@ const App = () => {
     return questions;
   };
 
+  // チャット投稿を解析（Q&A形式）
+  const parseTumblrChatPosts = (apiData) => {
+    const posts = apiData.response?.posts || [];
+    const questions = [];
+    
+    posts.forEach((post, index) => {
+      if (post.type === 'chat' && post.dialogue && post.dialogue.length >= 2) {
+        const dialogue = post.dialogue;
+        const question = dialogue[0];
+        const answer = dialogue[1];
+        
+        const cleanQuestion = stripHtml(question.phrase || '');
+        const cleanAnswer = stripHtml(answer.phrase || '');
+        
+        if (cleanQuestion.trim()) {
+          const questionObj = {
+            id: `tumblr_chat_${post.id}`,
+            title: stripHtml(post.title) || cleanQuestion.substring(0, 50) + '...',
+            content: cleanQuestion,
+            category: determineCategoryFromTags(post.tags || []),
+            author: question.name || 'ユーザー',
+            date: formatTumblrDate(post.date),
+            answered: !!cleanAnswer,
+            answer: cleanAnswer,
+            answerDate: cleanAnswer ? formatTumblrDate(post.date) : '',
+            tumblrUrl: post.post_url,
+            tumblrTags: post.tags || [],
+            postType: 'chat'
+          };
+          
+          questions.push(questionObj);
+        }
+      }
+    });
+    
+    console.log(`チャット投稿解析結果: ${questions.length}件の質問`);
+    return questions;
+  };
+
   // 全投稿タイプから質問を抽出（フォールバック）
   const parseAllTumblrPosts = (apiData) => {
     const posts = apiData.response?.posts || [];
@@ -287,20 +413,25 @@ const App = () => {
     posts.forEach((post, index) => {
       // Ask投稿
       if (post.type === 'answer' && post.question) {
-        questions.push({
-          id: `tumblr_all_ask_${post.id}`,
-          title: post.question,
-          content: post.question,
-          category: determineCategoryFromTags(post.tags || []),
-          author: post.asking_name || '匿名ユーザー',
-          date: formatTumblrDate(post.date),
-          answered: !!post.answer,
-          answer: post.answer || '',
-          answerDate: post.answer ? formatTumblrDate(post.date) : '',
-          tumblrUrl: post.post_url,
-          tumblrTags: post.tags || [],
-          postType: 'ask'
-        });
+        const cleanQuestion = stripHtml(post.question);
+        const cleanAnswer = stripHtml(post.answer || '');
+        
+        if (cleanQuestion.trim()) {
+          questions.push({
+            id: `tumblr_all_ask_${post.id}`,
+            title: cleanQuestion.length > 80 ? cleanQuestion.substring(0, 80) + '...' : cleanQuestion,
+            content: cleanQuestion,
+            category: determineCategoryFromTags(post.tags || []),
+            author: post.asking_name || '匿名ユーザー',
+            date: formatTumblrDate(post.date),
+            answered: !!cleanAnswer,
+            answer: cleanAnswer,
+            answerDate: cleanAnswer ? formatTumblrDate(post.date) : '',
+            tumblrUrl: post.post_url,
+            tumblrTags: post.tags || [],
+            postType: 'ask'
+          });
+        }
       }
       
       // チャット投稿（Q&A形式の可能性）
@@ -310,19 +441,65 @@ const App = () => {
           const question = dialogue[0];
           const answer = dialogue[1];
           
+          const cleanQuestion = stripHtml(question.phrase || '');
+          const cleanAnswer = stripHtml(answer.phrase || '');
+          
+          if (cleanQuestion.trim()) {
+            questions.push({
+              id: `tumblr_all_chat_${post.id}`,
+              title: stripHtml(post.title) || cleanQuestion.substring(0, 50) + '...',
+              content: cleanQuestion,
+              category: determineCategoryFromTags(post.tags || []),
+              author: question.name || 'ユーザー',
+              date: formatTumblrDate(post.date),
+              answered: !!cleanAnswer,
+              answer: cleanAnswer,
+              answerDate: cleanAnswer ? formatTumblrDate(post.date) : '',
+              tumblrUrl: post.post_url,
+              tumblrTags: post.tags || [],
+              postType: 'chat'
+            });
+          }
+        }
+      }
+      
+      // テキスト投稿（質問っぽいもの）
+      else if (post.type === 'text' && (post.title || post.body)) {
+        const cleanTitle = stripHtml(post.title || '');
+        const cleanBody = stripHtml(post.body || '');
+        
+        // より厳密な質問判定
+        const questionIndicators = [
+          '?', '？', '質問', '教えて', 'どうすれば', '方法',
+          'できない', 'エラー', '問題', '困って', '可能でしょうか',
+          'いかがでしょうか', 'お聞きしたい', 'ご相談', 'アドバイス'
+        ];
+        
+        const announcementIndicators = [
+          '追加しました', 'お知らせ', 'リリース', '更新', '新機能',
+          'アップデート', '実装しました', '対応しました', '公開しました'
+        ];
+        
+        const isQuestion = questionIndicators.some(indicator => 
+          cleanTitle.includes(indicator) || cleanBody.includes(indicator)
+        );
+        
+        const isAnnouncement = announcementIndicators.some(indicator => 
+          cleanTitle.includes(indicator) || cleanBody.includes(indicator)
+        );
+        
+        if (isQuestion && !isAnnouncement && (cleanTitle.trim() || cleanBody.trim())) {
           questions.push({
-            id: `tumblr_chat_${post.id}`,
-            title: post.title || question.phrase || 'チャット形式のQ&A',
-            content: question.phrase || '',
+            id: `tumblr_all_text_${post.id}`,
+            title: cleanTitle || cleanBody.substring(0, 50) + '...',
+            content: cleanBody || cleanTitle,
             category: determineCategoryFromTags(post.tags || []),
-            author: question.name || 'ユーザー',
+            author: extractAuthorFromPost(post),
             date: formatTumblrDate(post.date),
-            answered: true,
-            answer: answer.phrase || '',
-            answerDate: formatTumblrDate(post.date),
+            answered: false,
             tumblrUrl: post.post_url,
             tumblrTags: post.tags || [],
-            postType: 'chat'
+            postType: 'text'
           });
         }
       }
@@ -332,12 +509,39 @@ const App = () => {
     return questions;
   };
 
-  // ヘルパー関数: HTMLタグを除去
+  // ヘルパー関数: HTMLタグを完全に除去
   const stripHtml = (html) => {
     if (!html) return '';
+    
+    // 1. HTMLエンティティをデコード
+    const entityMap = {
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&#39;': "'",
+      '&nbsp;': ' '
+    };
+    
+    let text = html;
+    
+    // 2. HTMLエンティティを置換
+    Object.keys(entityMap).forEach(entity => {
+      text = text.replace(new RegExp(entity, 'g'), entityMap[entity]);
+    });
+    
+    // 3. HTMLタグを除去
     const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
+    tmp.innerHTML = text;
+    let cleanText = tmp.textContent || tmp.innerText || '';
+    
+    // 4. 追加のHTMLタグ除去（正規表現でフォールバック）
+    cleanText = cleanText.replace(/<[^>]*>/g, '');
+    
+    // 5. 連続する空白を1つにまとめ、前後の空白を除去
+    cleanText = cleanText.replace(/\s+/g, ' ').trim();
+    
+    return cleanText;
   };
 
   // ヘルパー関数: タグからカテゴリを判定
